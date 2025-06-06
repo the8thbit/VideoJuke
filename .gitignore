@@ -1,0 +1,11 @@
+node_modules/
+dist/
+temp/
+cache/
+*.log
+.DS_Store
+config.json
+
+# IDE files
+.vscode/
+.idea/

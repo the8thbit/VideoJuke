@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VideoJuke</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            cursor: none;
+        }
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .video-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            border-bottom: 0.05px solid rgba(1, 1, 1, 1);
+        }
+        .video-player {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            opacity: 0;
+        }
+        .video-player.visible {
+            opacity: 1;
+        }
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+        }
+        .loading-screen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .loading-content {
+            text-align: center;
+            max-width: 80%;
+            color: white;
+        }
+        .loading-spinner {
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top: 4px solid #ffffff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 30px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loading-subtitle {
+            color: #cccccc;
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        .progress-bar {
+            width: 300px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px auto;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #3b82f6;
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        .overlay {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 15px 20px;
+            border-radius: 10px;
+            font-size: 14px;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+            z-index: 10;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            pointer-events: none;
+        }
+        .overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        .info-overlay {
+            bottom: 20px;
+            left: 20px;
+            max-width: 500px;
+        }
+        .error-overlay {
+            top: 20px;
+            right: 20px;
+            background: rgba(220, 53, 69, 0.95);
+            max-width: 400px;
+        }
+        .status-indicator {
+            top: 20px;
+            right: 20px;
+            font-size: 22px;
+            text-align: center;
+            background: transparent;
+            border: none;
+            backdrop-filter: none;
+        }
+        .debug-overlay {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 450px;
+            max-height: 80vh;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            z-index: 11;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            display: none;
+        }
+        .debug-overlay h3 {
+            color: #4ade80;
+            margin: 0 0 10px 0;
+            font-size: 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+            padding-bottom: 5px;
+        }
+        .debug-overlay .section {
+            margin-bottom: 15px;
+        }
+        .debug-overlay .label {
+            color: #60a5fa;
+            font-weight: bold;
+        }
+        .controls-overlay {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 400px;
+            max-height: 80vh;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
+            z-index: 11;
+            overflow-y: auto;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            display: none;
+        }
+        .controls-overlay h3 {
+            color: #4ade80;
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+            padding-bottom: 8px;
+        }
+        .controls-section {
+            margin-bottom: 20px;
+        }
+        .controls-section h4 {
+            color: #fbbf24;
+            margin: 0 0 8px 0;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .control-item {
+            margin: 4px 0;
+        }
+        .key {
+            color: #60a5fa;
+            font-weight: bold;
+        }
+        .debug-overlay::-webkit-scrollbar,
+        .controls-overlay::-webkit-scrollbar {
+            width: 8px;
+        }
+        .debug-overlay::-webkit-scrollbar-track,
+        .controls-overlay::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+        }
+        .debug-overlay::-webkit-scrollbar-thumb,
+        .controls-overlay::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 4px;
+        }
+        .debug-overlay::-webkit-scrollbar-thumb:hover,
+        .controls-overlay::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="loadingScreen" class="loading-screen">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-subtitle">Initializing video library...</div>
+            <div class="progress-bar">
+                <div id="loadingProgress" class="progress-fill"></div>
+            </div>
+        </div>
+    </div>
+    <div class="video-container">
+        <video id="video1" class="video-player" muted></video>
+        <video id="video2" class="video-player" muted></video>
+    </div>
+    <div id="infoOverlay" class="overlay info-overlay">
+        <div id="videoTitle"></div>
+        <div id="videoDetails"></div>
+    </div>
+    <div id="errorOverlay" class="overlay error-overlay">
+        <div id="errorMessage"></div>
+    </div>
+    <div id="statusIndicator" class="overlay status-indicator">
+        <div id="statusIcon"></div>
+    </div>
+    <div id="debugOverlay" class="debug-overlay">
+        <h3>Debug Information</h3>
+        <div id="debugContent">
+            <div class="section">
+                <div><span class="label">Queue:</span> <span id="debugQueue">-</span></div>
+                <div><span class="label">History:</span> <span id="debugHistory">-</span></div>
+                <div><span class="label">Current Video:</span> <span id="debugCurrentVideo">-</span></div>
+            </div>
+            <div class="section">
+                <div><span class="label">Playback:</span> <span id="debugPlayback">-</span></div>
+                <div><span class="label">Effects:</span> <span id="debugEffects">-</span></div>
+            </div>
+            <div class="section">
+                <div><span class="label">Session:</span> <span id="debugSession">-</span></div>
+            </div>
+        </div>
+    </div>
+    <div id="controlsOverlay" class="controls-overlay">
+        <h3>Keyboard Controls</h3>
+        <div class="controls-section">
+            <h4>Playback</h4>
+            <div class="control-item"><span class="key">Space</span> - Play/Pause</div>
+            <div class="control-item"><span class="key">N</span> - Next video</div>
+            <div class="control-item"><span class="key">P</span> - Previous video</div>
+            <div class="control-item"><span class="key">R</span> - Restart video</div>
+            <div class="control-item"><span class="key">L</span> - Toggle loop</div>
+            <div class="control-item"><span class="key">←/→</span> - Skip 5 seconds</div>
+            <div class="control-item"><span class="key">↑/↓</span> - Speed control</div>
+            <div class="control-item"><span class="key">0</span> - Reset speed to 1x</div>
+        </div>
+        <div class="controls-section">
+            <h4>Audio & Effects</h4>
+            <div class="control-item"><span class="key">M</span> - Toggle mute</div>
+            <div class="control-item"><span class="key">F</span> - Toggle crossfade</div>
+            <div class="control-item"><span class="key">B</span> - Toggle blur</div>
+        </div>
+        <div class="controls-section">
+            <h4>Information</h4>
+            <div class="control-item"><span class="key">I</span> - Show video info</div>
+            <div class="control-item"><span class="key">T</span> - Show title only</div>
+            <div class="control-item"><span class="key">Q</span> - Toggle debug</div>
+            <div class="control-item"><span class="key">?</span> or <span class="key">/</span> - This help</div>
+        </div>
+        <div class="controls-section">
+            <h4>Application</h4>
+            <div class="control-item"><span class="key">ESC</span> - Quit</div>
+        </div>
+    </div>
+    <script type="module" src="client.js"></script>
+</body>
+</html>
