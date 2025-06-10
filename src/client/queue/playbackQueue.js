@@ -85,6 +85,8 @@ export default class PlaybackQueue {
         
         try {
             const fillTarget = targetSize || this.minSize;
+            let consecutiveErrors = 0;
+            const maxConsecutiveErrors = 3;
             
             while (this.queue.length < fillTarget) {
                 if (progressCallback) {
@@ -105,8 +107,20 @@ export default class PlaybackQueue {
                 
                 if (!videoData) {
                     this.logger.error('No video data received');
-                    break;
+                    consecutiveErrors++;
+                    
+                    if (consecutiveErrors >= maxConsecutiveErrors) {
+                        this.logger.error(`Failed to get valid video after ${maxConsecutiveErrors} attempts`);
+                        break;
+                    }
+                    
+                    // Wait a bit before retrying
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    continue;
                 }
+                
+                // Reset error counter on successful fetch
+                consecutiveErrors = 0;
                 
                 // Test video playability
                 const isPlayable = await this.testVideoPlayability(videoData);
@@ -118,7 +132,7 @@ export default class PlaybackQueue {
                     this.logger.log(`Added to queue: ${videoWithTiming.filename} (${this.queue.length}/${fillTarget})`);
                 } else {
                     this.logger.log(`Unplayable video: ${videoData.filename}`);
-                    await window.electronAPI.videoEnded(videoData);
+                    await window.electronAPI.videoError(`Unplayable video: ${videoData.filename}`);
                 }
             }
             
@@ -176,7 +190,22 @@ export default class PlaybackQueue {
                 return;
             }
             
-            this.testVideo.src = `file://${videoData.processedPath}`;
+            // Construct video URL properly
+            let videoUrl;
+            if (videoData.serverUrl) {
+                // Standalone mode - use HTTP URL
+                videoUrl = videoData.serverUrl.startsWith('http') ? 
+                    videoData.serverUrl : 
+                    `${window.location.origin}${videoData.serverUrl}`;
+            } else {
+                // Electron mode - use file URL
+                videoUrl = `file://${videoData.processedPath}`;
+            }
+            
+            this.logger.log(`Testing video playability: ${videoUrl}`);
+            this.testVideo.src = videoUrl;
+            this.testVideo.muted = true; // Ensure muted for testing
+            this.testVideo.volume = 0;
             
             const cleanup = () => {
                 this.testVideo.removeEventListener('canplay', onCanPlay);
@@ -190,7 +219,8 @@ export default class PlaybackQueue {
                 resolve(true);
             };
             
-            const onError = () => {
+            const onError = (e) => {
+                this.logger.error(`Video test failed for ${videoData.filename}:`, e);
                 cleanup();
                 resolve(false);
             };
@@ -198,10 +228,11 @@ export default class PlaybackQueue {
             this.testVideo.addEventListener('canplay', onCanPlay);
             this.testVideo.addEventListener('error', onError);
             
-            // Try to play
-            this.testVideo.play().catch(() => {
-                cleanup();
-                resolve(false);
+            // Try to play for testing (muted)
+            this.testVideo.play().catch((error) => {
+                this.logger.log(`Test video play failed (expected): ${error.message}`);
+                // Don't fail the test just because autoplay is blocked
+                // The 'canplay' event is what matters
             });
             
             // Timeout

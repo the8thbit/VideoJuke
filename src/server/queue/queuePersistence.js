@@ -13,19 +13,24 @@ class QueuePersistence {
         this.tempDir = path.join(process.cwd(), 'temp');
     }
     
-    async save(mainWindow) {
+    async save(mainWindow = null) {
         try {
             // Ensure cache directory exists
             await FileUtils.ensureDirectory(this.cacheDir);
             
             this.logger.log('Saving queue state to cache...');
             
-            // Get playback queue from renderer
+            // Get playback queue from renderer (only if window exists - Electron mode)
             let playbackQueue = [];
             if (mainWindow && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
-                playbackQueue = await mainWindow.webContents.executeJavaScript(
-                    'window.getQueueStateForPersistence ? window.getQueueStateForPersistence() : []'
-                );
+                try {
+                    playbackQueue = await mainWindow.webContents.executeJavaScript(
+                        'window.getQueueStateForPersistence ? window.getQueueStateForPersistence() : []'
+                    );
+                } catch (error) {
+                    this.logger.error('Failed to get playback queue from renderer', error);
+                    playbackQueue = [];
+                }
             }
             
             // Get playback history from HistoryManager
@@ -193,6 +198,10 @@ class QueuePersistence {
             // Collect files to preserve
             const preservedFiles = new Set();
             
+            // Get current time for age-based cleanup
+            const now = Date.now();
+            const maxAge = 3600000; // 1 hour - only delete files older than this
+            
             if (queueState) {
                 // Preserve files from queue
                 for (const video of queueState.combinedQueue || []) {
@@ -228,18 +237,30 @@ class QueuePersistence {
             
             // Clean up files
             let cleanedCount = 0;
+            let preservedCount = 0;
+            
             for (const filename of tempFiles) {
-                if (!preservedFiles.has(filename)) {
-                    const filePath = path.join(this.tempDir, filename);
-                    if (await this.safeDeleteFile(filePath)) {
-                        cleanedCount++;
+                const filePath = path.join(this.tempDir, filename);
+                
+                try {
+                    // Get file stats to check age
+                    const stats = await fs.stat(filePath);
+                    const fileAge = now - stats.mtimeMs;
+                    
+                    // Only delete if not preserved AND older than maxAge
+                    if (!preservedFiles.has(filename) && fileAge > maxAge) {
+                        if (await this.safeDeleteFile(filePath)) {
+                            cleanedCount++;
+                        }
+                    } else {
+                        preservedCount++;
                     }
+                } catch (error) {
+                    this.logger.error(`Failed to stat file ${filename}:`, error);
                 }
             }
             
-            if (cleanedCount > 0) {
-                this.logger.log(`Cleaned up ${cleanedCount} temp files`);
-            }
+            this.logger.log(`Temp cleanup: cleaned ${cleanedCount} files, preserved ${preservedCount} files`);
             
         } catch (error) {
             this.logger.error('Failed to cleanup temp directory', error);

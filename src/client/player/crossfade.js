@@ -20,9 +20,14 @@ export default class Crossfade {
         
         const videoDuration = currentVideo.duration;
         const crossfadeDuration = this.calculateCrossfadeDuration(videoDuration);
-        const startTime = Math.max(0, videoDuration - crossfadeDuration - (this.BUFFER_TIME / 1000));
+        
+        // More conservative timing to ensure crossfade completes before video ends
+        const safetyBuffer = Math.max(0.2, crossfadeDuration * 0.1); // 10% of crossfade duration or 0.2s
+        const startTime = Math.max(0, videoDuration - crossfadeDuration - safetyBuffer);
         const currentTime = currentVideo.currentTime;
         const delay = Math.max(0, startTime - currentTime) * 1000;
+        
+        this.logger.log(`Scheduling crossfade: duration=${crossfadeDuration}s, startTime=${startTime}s, currentTime=${currentTime}s, delay=${delay}ms`);
         
         if (delay <= 100) {
             // Start immediately
@@ -30,6 +35,7 @@ export default class Crossfade {
         } else {
             this.scheduledTimer = setTimeout(() => {
                 if (this.enabled) {
+                    this.logger.log('Crossfade timer fired, starting crossfade');
                     this.start(currentVideo, getNextVideo, onComplete, crossfadeDuration);
                 }
             }, delay);
@@ -87,40 +93,64 @@ export default class Crossfade {
     async performCrossfade() {
         const { currentVideo, nextVideo, nextVideoData, onComplete, duration } = this.activeCrossfade;
         
+        // Construct proper video URL
+        let videoUrl;
+        if (nextVideoData.serverUrl) {
+            // Standalone mode - use HTTP URL
+            videoUrl = nextVideoData.serverUrl.startsWith('http') ? 
+                nextVideoData.serverUrl : 
+                `${window.location.origin}${nextVideoData.serverUrl}`;
+        } else {
+            // Electron mode - use file URL
+            videoUrl = `file://${nextVideoData.processedPath}`;
+        }
+        
+        this.logger.log(`Starting crossfade from ${currentVideo.id} to ${nextVideo.id}, duration: ${duration}s`);
+        
         // Prepare next video
-        nextVideo.src = `file://${nextVideoData.processedPath}`;
-        nextVideo.muted = currentVideo.muted;
+        nextVideo.src = videoUrl;
+        nextVideo.muted = false;
         nextVideo.volume = 0;
         nextVideo.playbackRate = currentVideo.playbackRate;
         nextVideo.preservesPitch = true;
         nextVideo.loop = currentVideo.loop;
         
         await this.waitForVideoReady(nextVideo);
-        await nextVideo.play();
         
-        // Perform fade animation
+        try {
+            await nextVideo.play();
+            this.logger.log('Crossfade next video started successfully');
+        } catch (error) {
+            this.logger.error('Crossfade autoplay failed:', error);
+            // Continue with crossfade even if autoplay fails
+        }
+        
+        // Perform fade animation - this will handle completion
         this.animateFade(duration * 1000);
         
-        // Handle completion
-        const onEnd = () => {
-            currentVideo.removeEventListener('ended', onEnd);
-            this.complete();
-        };
+        // Set up a safety completion timer (slightly longer than animation)
+        const safetyTimeout = setTimeout(() => {
+            if (this.activeCrossfade) {
+                this.logger.log('Crossfade safety timeout triggered');
+                this.complete();
+            }
+        }, (duration * 1000) + 500);
         
-        currentVideo.addEventListener('ended', onEnd);
-        
-        setTimeout(() => {
-            currentVideo.removeEventListener('ended', onEnd);
-            this.complete();
-        }, duration * 1000);
+        // Store the timeout so we can cancel it
+        this.activeCrossfade.safetyTimeout = safetyTimeout;
     }
-    
+
     animateFade(durationMs) {
         const { currentVideo, nextVideo } = this.activeCrossfade;
         const startTime = Date.now();
         
+        this.logger.log(`Starting fade animation: ${durationMs}ms duration`);
+        
         const animate = () => {
-            if (!this.activeCrossfade) return;
+            if (!this.activeCrossfade) {
+                this.logger.log('Animation cancelled - no active crossfade');
+                return;
+            }
             
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / durationMs, 1);
@@ -144,7 +174,10 @@ export default class Crossfade {
             if (progress < 1) {
                 requestAnimationFrame(animate);
             } else {
+                this.logger.log('Fade animation completed');
                 this.finalizeStates();
+                // Complete the crossfade when animation is done
+                setTimeout(() => this.complete(), 0);
             }
         };
         
@@ -170,7 +203,12 @@ export default class Crossfade {
         
         this.logger.log('Completing crossfade');
         
-        const { currentVideo, nextVideo, nextVideoData, onComplete } = this.activeCrossfade;
+        const { currentVideo, nextVideo, nextVideoData, onComplete, safetyTimeout } = this.activeCrossfade;
+        
+        // Cancel safety timeout
+        if (safetyTimeout) {
+            clearTimeout(safetyTimeout);
+        }
         
         // Update visual states
         if (nextVideo) {
@@ -196,6 +234,7 @@ export default class Crossfade {
         if (onComplete && nextVideoData) {
             // Defer callback to prevent stack issues
             setTimeout(() => {
+                this.logger.log(`Crossfade complete callback for: ${nextVideoData.filename}`);
                 onComplete(nextVideoData);
             }, 0);
         }
@@ -205,14 +244,21 @@ export default class Crossfade {
         if (this.scheduledTimer) {
             clearTimeout(this.scheduledTimer);
             this.scheduledTimer = null;
+            this.logger.log('Cancelled scheduled crossfade');
         }
         
         if (this.activeCrossfade) {
+            this.logger.log('Cancelling active crossfade');
             this.cleanup();
         }
     }
     
     cleanup() {
+        // Clear safety timeout if it exists
+        if (this.activeCrossfade?.safetyTimeout) {
+            clearTimeout(this.activeCrossfade.safetyTimeout);
+        }
+        
         if (this.activeCrossfade) {
             const { currentVideo, nextVideo } = this.activeCrossfade;
             
@@ -274,20 +320,35 @@ export default class Crossfade {
         });
     }
     
-    // Legacy perform method for backward compatibility
     async perform(currentVideo, nextVideo) {
+        // Set active state to prevent video ended events from interrupting
+        this.activeCrossfade = {
+            currentVideo,
+            nextVideo,
+            isLegacyPerform: true
+        };
+        
         return new Promise((resolve) => {
             const duration = this.duration;
+            
+            this.logger.log(`Starting legacy crossfade: ${duration}ms duration`);
             
             nextVideo.style.opacity = '0';
             nextVideo.classList.add('visible');
             
             nextVideo.play().then(() => {
+                // Reduced delay for more responsive crossfade
                 setTimeout(() => {
-                    // Implement animation directly instead of relying on this.animateFade
                     const startTime = Date.now();
                     
                     const animate = () => {
+                        // Check if crossfade was cancelled
+                        if (!this.activeCrossfade) {
+                            this.logger.log('Legacy crossfade cancelled');
+                            resolve();
+                            return;
+                        }
+                        
                         const elapsed = Date.now() - startTime;
                         const progress = Math.min(elapsed / duration, 1);
                         
@@ -310,6 +371,8 @@ export default class Crossfade {
                         if (progress < 1) {
                             requestAnimationFrame(animate);
                         } else {
+                            this.logger.log('Legacy crossfade animation completed');
+                            
                             // Finalize states
                             currentVideo.classList.remove('visible');
                             currentVideo.pause();
@@ -321,14 +384,18 @@ export default class Crossfade {
                                 nextVideo.style.filter = '';
                             }
                             
+                            // Clear active state
+                            this.activeCrossfade = null;
+                            
                             resolve();
                         }
                     };
                     
                     requestAnimationFrame(animate);
-                }, 50);
+                }, 25); // Reduced from 50ms to 25ms
             }).catch(error => {
                 this.logger.error('Error in legacy crossfade', error);
+                this.activeCrossfade = null;
                 resolve();
             });
         });
@@ -347,9 +414,5 @@ export default class Crossfade {
         if (!enabled) {
             this.cancel();
         }
-    }
-    
-    cleanup() {
-        this.cancel();
     }
 }

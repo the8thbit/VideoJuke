@@ -5,6 +5,7 @@ export default class LoadingScreen {
         this.loadingScreen = document.getElementById('loadingScreen');
         this.subtitle = document.querySelector('.loading-subtitle');
         this.progressBar = document.getElementById('loadingProgress');
+        this.startButton = document.getElementById('startButton');
         
         this.consoleLines = [];
     }
@@ -16,8 +17,20 @@ export default class LoadingScreen {
     }
     
     hide() {
+        this.logger.log('LoadingScreen.hide() called');
         if (this.loadingScreen) {
+            this.logger.log('Adding hidden class to loading screen');
             this.loadingScreen.classList.add('hidden');
+            
+            // Force hide after transition in case CSS doesn't work
+            setTimeout(() => {
+                if (this.loadingScreen) {
+                    this.loadingScreen.style.display = 'none';
+                    this.logger.log('Loading screen display set to none');
+                }
+            }, 500);
+        } else {
+            this.logger.error('Loading screen element not found');
         }
     }
     
@@ -38,6 +51,11 @@ export default class LoadingScreen {
         
         this.updateText(initState.message || 'Initializing...');
         this.updateProgress(initState.progress || 0);
+        
+        // Update start button text based on stage
+        if (this.startButton && initState.stage === 'complete') {
+            this.startButton.textContent = 'Start Playback';
+        }
     }
     
     updateQueueProgress(progress) {
@@ -55,6 +73,12 @@ export default class LoadingScreen {
     showError(message) {
         this.updateText(`Error: ${message}`);
         this.updateProgress(0);
+        
+        // Disable start button on error
+        if (this.startButton) {
+            this.startButton.disabled = true;
+            this.startButton.style.opacity = '0.3';
+        }
     }
     
     addLog(message, level = 'info') {

@@ -145,7 +145,7 @@ async startInitializationMonitoring() {
     
     async startVideoPlayback() {
         try {
-            this.logger.log('Building initial queue...');
+          this.logger.log('Building initial queue...');
             
             // Check server status before starting
             const status = await window.electronAPI.getQueueStatus();
@@ -164,27 +164,41 @@ async startInitializationMonitoring() {
                 await this.waitForServerVideos();
             }
             
+            const threshold = this.config.video.playbackQueueInitializationThreshold;
+            this.logger.log(`Starting queue build with STRICT target: ${threshold}`);
+            
             const ready = await this.playbackQueue.buildInitialQueue(
-                (progress) => this.loadingScreen.updateQueueProgress(progress)
+                (progress) => {
+                    this.logger.log(`Queue progress: ${progress.playbackCurrent}/${progress.playbackTarget}`);
+                    this.loadingScreen.updateQueueProgress(progress);
+                }
             );
             
             if (ready) {
-                await this.startFirstVideo();
-                this.playbackQueue.startMonitoring();
-                this.isPlaybackActive = true;
+                const finalSize = this.playbackQueue.getSize();
+                this.logger.log(`Queue built successfully. Final size: ${finalSize}, Required: ${threshold}`);
+                
+                // Double-check the threshold is actually met
+                if (finalSize >= threshold) {
+                    this.logger.log(`Threshold satisfied (${finalSize} >= ${threshold}), starting playback`);
+                    await this.startFirstVideo();
+                    this.playbackQueue.startMonitoring();
+                    this.isPlaybackActive = true;
+                } else {
+                    throw new Error(`Queue size ${finalSize} is below required threshold ${threshold}`);
+                }
             } else {
-                throw new Error('Failed to build initial queue');
+                throw new Error(`Failed to build initial queue to threshold ${threshold}`);
             }
         } catch (error) {
             this.logger.error('Failed to start video playback', error);
             this.loadingScreen.showError(`Failed to start playback: ${error.message}`);
             this.overlays.showError('Failed to start video playback');
             
-            // Attempt recovery
             setTimeout(() => {
                 this.logger.log('Attempting recovery...');
                 this.startVideoPlayback();
-            }, 5000);
+            }, 500);
         }
     }
 

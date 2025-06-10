@@ -148,14 +148,45 @@ class PreprocessedQueue {
         }
     }
     
+    async clear() {
+        for (const video of this.queue) {
+            await FileUtils.deleteFile(video.processedPath);
+        }
+        this.queue = [];
+    }
+
     getNext() {
         if (this.queue.length === 0) {
             this.logger.log('Preprocessed queue empty');
             return null;
         }
         
-        const randomIndex = Math.floor(Math.random() * this.queue.length);
-        const video = this.queue.splice(randomIndex, 1)[0];
+        // Find a video with an existing file
+        let video = null;
+        let attempts = 0;
+        const maxAttempts = Math.min(this.queue.length, 10);
+        
+        while (attempts < maxAttempts && !video) {
+            const randomIndex = Math.floor(Math.random() * this.queue.length);
+            const candidate = this.queue.splice(randomIndex, 1)[0];
+            
+            // Validate file exists
+            if (candidate.processedPath && FileUtils.exists(candidate.processedPath)) {
+                video = candidate;
+            } else {
+                this.logger.error(`Processed file missing for: ${candidate.filename}, removing from queue`);
+                this.stats.preprocessingErrors++;
+            }
+            
+            attempts++;
+        }
+        
+        if (!video) {
+            this.logger.error('No valid videos found in preprocessed queue');
+            // Trigger immediate refill
+            setImmediate(() => this.fill());
+            return null;
+        }
         
         this.logger.log(`Dequeued: ${video.filename} (remaining: ${this.queue.length})`);
         
@@ -168,24 +199,45 @@ class PreprocessedQueue {
         return video;
     }
     
-    async clear() {
-        for (const video of this.queue) {
-            await FileUtils.deleteFile(video.processedPath);
-        }
-        this.queue = [];
-    }
-    
     async cleanupVideo(videoData) {
         if (videoData?.processedPath) {
             await FileUtils.deleteFile(videoData.processedPath);
         }
     }
-    
+
+    async validateQueue() {
+        const validVideos = [];
+        let invalidCount = 0;
+        
+        for (const video of this.queue) {
+            if (video.processedPath && await FileUtils.exists(video.processedPath)) {
+                validVideos.push(video);
+            } else {
+                this.logger.error(`Removing video with missing file from queue: ${video.filename}`);
+                invalidCount++;
+            }
+        }
+        
+        if (invalidCount > 0) {
+            this.logger.log(`Queue validation: removed ${invalidCount} videos with missing files`);
+            this.queue = validVideos;
+            
+            // Trigger refill if needed
+            if (this.queue.length < this.configManager.config.video.preprocessedQueueSize) {
+                setImmediate(() => this.fill());
+            }
+        }
+    }
+
     startMonitoring() {
         const monitorInterval = this.configManager.getTimeout('queueMonitorInterval', 30000);
         const criticalMonitorInterval = this.configManager.getTimeout('queueCriticalMonitorInterval', 5000);
         
+        // Monitor queue size periodically
         setInterval(async () => {
+            // First validate the queue
+            await this.validateQueue();
+            
             const minSize = this.configManager.config.video.preprocessedQueueSize;
             const currentSize = this.queue.length;
             
@@ -206,40 +258,7 @@ class PreprocessedQueue {
             }
         }, criticalMonitorInterval);
     }
-    
-    getNext() {
-        if (this.queue.length === 0) {
-            this.logger.log('Preprocessed queue empty');
-            return null;
-        }
-        
-        const randomIndex = Math.floor(Math.random() * this.queue.length);
-        const video = this.queue.splice(randomIndex, 1)[0];
-        
-        this.logger.log(`Dequeued: ${video.filename} (remaining: ${this.queue.length})`);
-        
-        // Trigger refill immediately if below target
-        if (this.queue.length < this.configManager.config.video.preprocessedQueueSize && !this.isProcessing) {
-            this.logger.log('Preprocessed queue below target, triggering immediate refill');
-            setImmediate(() => this.fill());
-        }
-        
-        return video;
-    }
-    
-    async clear() {
-        for (const video of this.queue) {
-            await FileUtils.deleteFile(video.processedPath);
-        }
-        this.queue = [];
-    }
-    
-    async cleanupVideo(videoData) {
-        if (videoData?.processedPath) {
-            await FileUtils.deleteFile(videoData.processedPath);
-        }
-    }
-    
+
     size() {
         return this.queue.length;
     }

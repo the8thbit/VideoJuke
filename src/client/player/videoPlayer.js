@@ -62,10 +62,8 @@ export default class VideoPlayer {
             this.logger.log(`=== PLAY VIDEO: ${videoData.filename} ===`);
             this.logger.log(`Current player: ${this.currentPlayer} (${currentVideo.id})`);
             this.logger.log(`Next player: ${nextPlayer} (${nextVideo.id})`);
-            this.logger.log(`Current video data: ${this.currentVideo?.filename || 'none'}`);
             this.logger.log(`Is first video: ${isFirstVideo}`);
             this.logger.log(`Is manual transition: ${isManualTransition}`);
-            this.logger.log(`From history: ${videoData._fromHistory ? 'yes' : 'no'}`);
             
             // Cancel any active operations
             this.crossfade.cancel();
@@ -78,8 +76,18 @@ export default class VideoPlayer {
                 this._cleanupVideo(currentVideo);
             }
             
-            // Prepare next video
-            await this._prepareVideo(nextVideo, videoData);
+            // Prepare next video with error recovery
+            try {
+                await this._prepareVideo(nextVideo, videoData);
+            } catch (prepareError) {
+                this.logger.error('Failed to prepare video, attempting recovery', prepareError);
+                
+                // Clean up the failed video element
+                this._cleanupVideo(nextVideo);
+                
+                // Re-throw with more context
+                throw new Error(`Video preparation failed: ${prepareError.message}`);
+            }
             
             // Perform transition - skip crossfade for manual transitions
             if (this.config.crossfade.enabled && !isFirstVideo && currentHasContent && !isManualTransition) {
@@ -110,16 +118,23 @@ export default class VideoPlayer {
             
             // Notify playback started
             if (this.onVideoStartedPlayingCallback) {
+                this.logger.log(`Calling onVideoStartedPlaying callback: isFirstVideo=${isFirstVideo}`);
                 this.onVideoStartedPlayingCallback(videoData, isFirstVideo);
             }
-            
         } catch (error) {
             this.logger.error('Error playing video', error);
+            
+            // CRITICAL: Always release the lock on error
+            this._transitionLock = false;
+            
             if (this.onVideoErrorCallback) {
                 this.onVideoErrorCallback(error);
             }
+            
+            // Re-throw to let the caller handle it
+            throw error;
         } finally {
-            // Always release the lock
+            // Always release the lock after a delay
             setTimeout(() => {
                 this._transitionLock = false;
             }, 100);
@@ -128,6 +143,7 @@ export default class VideoPlayer {
     
     async _prepareVideo(video, videoData) {
         this.logger.log(`Preparing video element ${video.id} with: ${videoData.filename}`);
+        this.logger.log(`Video data - serverUrl: ${videoData.serverUrl}, processedPath: ${videoData.processedPath}`);
         
         const loadTimeout = this.config.timeouts?.videoLoadTimeout || 10000;
         
@@ -136,6 +152,7 @@ export default class VideoPlayer {
             const loadHandler = () => {
                 video.removeEventListener('canplaythrough', loadHandler);
                 video.removeEventListener('error', errorHandler);
+                clearTimeout(timeoutId);
                 this.logger.log(`Video ${video.id} ready: ${videoData.filename}`);
                 resolve();
             };
@@ -143,16 +160,64 @@ export default class VideoPlayer {
             const errorHandler = (e) => {
                 video.removeEventListener('canplaythrough', loadHandler);
                 video.removeEventListener('error', errorHandler);
-                reject(new Error(`Failed to load video: ${e.type}`));
+                clearTimeout(timeoutId);
+                
+                const error = e.target.error;
+                this.logger.error(`Failed to load video ${videoData.filename}: ${e.type}`);
+                this.logger.error(`Video error details:`, error);
+                
+                // Provide more detailed error info
+                let errorMessage = `Failed to load video: ${e.type}`;
+                if (error) {
+                    if (error.code === 4 && error.message.includes('404')) {
+                        errorMessage = `Video file not found on server: ${videoData.filename}`;
+                    } else {
+                        errorMessage = `Video error (${error.code}): ${error.message}`;
+                    }
+                }
+                
+                reject(new Error(errorMessage));
             };
             
+            // Construct proper video URL with validation and encoding
+            let videoUrl;
+            try {
+                if (videoData.serverUrl) {
+                    // Standalone mode - ensure proper URL construction
+                    if (videoData.serverUrl.startsWith('http')) {
+                        videoUrl = videoData.serverUrl;
+                        this.logger.log(`Using absolute serverUrl: ${videoUrl}`);
+                    } else {
+                        // Ensure proper encoding for special characters in filename
+                        const urlPath = videoData.serverUrl.startsWith('/') ? 
+                            videoData.serverUrl : '/' + videoData.serverUrl;
+                        videoUrl = window.location.origin + urlPath;
+                        this.logger.log(`Constructed URL: ${window.location.origin} + ${urlPath} = ${videoUrl}`);
+                    }
+                } else {
+                    // Electron mode
+                    videoUrl = `file://${videoData.processedPath}`;
+                    this.logger.log(`Using file URL: ${videoUrl}`);
+                }
+                
+                this.logger.log(`Final video URL: ${videoUrl}`);
+                
+                // Validate URL format
+                new URL(videoUrl);
+                this.logger.log('URL validation passed');
+            } catch (urlError) {
+                this.logger.error(`Invalid URL constructed: ${videoUrl}`, urlError);
+                reject(new Error(`Invalid video URL: ${urlError.message}`));
+                return;
+            }
+            
             // Set video properties
-            video.src = `file://${videoData.processedPath}`;
+            video.src = videoUrl;
             video.muted = this.isMuted;
             video.volume = 1.0;
             video.playbackRate = this.playbackSpeed;
             video.preservesPitch = true;
-            video.loop = false; // We'll handle looping manually
+            video.loop = false;
             video.currentTime = 0;
             
             // Reset visual state
@@ -165,12 +230,14 @@ export default class VideoPlayer {
             
             // Force load
             video.load();
+            this.logger.log(`Video load initiated for: ${video.id}`);
             
             // Timeout protection
-            setTimeout(() => {
+            const timeoutId = setTimeout(() => {
                 video.removeEventListener('canplaythrough', loadHandler);
                 video.removeEventListener('error', errorHandler);
-                reject(new Error('Video load timeout'));
+                this.logger.error(`Video load timeout for: ${videoData.filename}`);
+                reject(new Error(`Video load timeout after ${loadTimeout}ms`));
             }, loadTimeout);
         });
     }
@@ -180,9 +247,40 @@ export default class VideoPlayer {
         
         if (!this.isPaused) {
             try {
+                // Ensure video is muted for autoplay compatibility
+                nextVideo.muted = true;
+                
                 await nextVideo.play();
+                this.logger.log(`Video started playing: ${nextVideo.src ? 'with source' : 'no source'}, muted: ${nextVideo.muted}`);
+                
+                // Unmute after successful play if user wants audio
+                if (!this.isMuted) {
+                    // Small delay to ensure playback is stable
+                    setTimeout(() => {
+                        if (!nextVideo.paused && nextVideo.currentTime > 0) {
+                            nextVideo.muted = false;
+                            nextVideo.volume = 1.0;
+                            this.logger.log('Video unmuted after successful autoplay');
+                        }
+                    }, 100);
+                }
+                
             } catch (error) {
-                this.logger.error('Failed to start video playback', error);
+                this.logger.error('Autoplay failed, checking if user interaction is needed', error);
+                
+                // Check if this is an autoplay policy error
+                if (error.name === 'NotAllowedError' || 
+                    error.message.includes('play method is not allowed') ||
+                    error.message.includes('user didn\'t interact') ||
+                    error.message.includes('user denied permission')) {
+                    
+                    this.logger.log('Autoplay blocked by browser policy - requiring user interaction');
+                    this._handleAutoplayBlocked(nextVideo);
+                    return; // Don't throw error, handle gracefully
+                }
+                
+                // For other errors, throw as before
+                this.logger.error('Non-autoplay video error:', error);
                 throw error;
             }
         }
@@ -191,6 +289,103 @@ export default class VideoPlayer {
             currentVideo.classList.remove('visible');
             currentVideo.pause();
             currentVideo.currentTime = 0;
+        }
+    }
+
+    _handleAutoplayBlocked(video) {
+        this.logger.log('Handling autoplay blocked scenario');
+        
+        // Add visual indicator that user interaction is needed
+        this._showAutoplayPrompt();
+        
+        // Set up one-time click handler to resume playback
+        const resumePlayback = () => {
+            this.logger.log('User interaction detected, resuming playback');
+            this._hideAutoplayPrompt();
+            
+            video.muted = true; // Ensure still muted for play attempt
+            video.play().then(() => {
+                this.logger.log('Playback resumed after user interaction');
+                
+                // Unmute if user wants audio
+                if (!this.isMuted) {
+                    setTimeout(() => {
+                        video.muted = false;
+                        video.volume = 1.0;
+                    }, 100);
+                }
+            }).catch(err => {
+                this.logger.error('Failed to resume playback even after user interaction', err);
+                // Trigger error callback for further handling
+                if (this.onVideoErrorCallback) {
+                    this.onVideoErrorCallback(err);
+                }
+            });
+            
+            // Remove the event listener
+            document.removeEventListener('click', resumePlayback);
+            document.removeEventListener('keydown', resumePlayback);
+        };
+        
+        // Listen for any user interaction
+        document.addEventListener('click', resumePlayback, { once: true });
+        document.addEventListener('keydown', resumePlayback, { once: true });
+    }
+
+    _showAutoplayPrompt() {
+        // Check if error toasts are enabled
+        if (this.config.ui?.showErrorToast === false) {
+            this.logger.log('Autoplay prompt suppressed due to showErrorToast setting');
+            return;
+        }
+        
+        // Check if prompt already exists
+        let prompt = document.getElementById('autoplay-prompt');
+        if (prompt) return;
+        
+        prompt = document.createElement('div');
+        prompt.id = 'autoplay-prompt';
+        prompt.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 20px 30px;
+            border-radius: 10px;
+            font-size: 16px;
+            z-index: 1000;
+            text-align: center;
+            border: 2px solid #3b82f6;
+            animation: fadeIn 0.3s ease-out;
+        `;
+        
+        prompt.innerHTML = `
+            <div style="margin-bottom: 10px;">🎬</div>
+            <div>Click anywhere or press any key to start playback</div>
+            <div style="font-size: 12px; color: #ccc; margin-top: 8px;">Browser autoplay policy requires user interaction</div>
+        `;
+        
+        // Add fade-in animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+                to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        document.body.appendChild(prompt);
+        this.logger.log('Autoplay prompt displayed');
+    }
+
+    _hideAutoplayPrompt() {
+        const prompt = document.getElementById('autoplay-prompt');
+        if (prompt) {
+            prompt.remove();
+            this.logger.log('Autoplay prompt hidden');
         }
     }
     
@@ -269,6 +464,11 @@ export default class VideoPlayer {
         
         const error = event.target.error;
         this.logger.error('Video playback error', error);
+        
+        // Don't immediately trigger error callback for autoplay restrictions
+        if (error && error.code === error.MEDIA_ERR_SRC_NOT_SUPPORTED) {
+            this.logger.error('Media source not supported - may be URL encoding issue');
+        }
         
         if (this.onVideoErrorCallback) {
             this.onVideoErrorCallback(error);

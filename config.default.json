@@ -2,6 +2,16 @@
   "directories": [
     "C:\\Users\\Public\\Videos\\Sample Videos"
   ],
+  "network": {
+    "server": {
+      "enabled": true,
+      "port": 8080,
+      "host": "localhost"
+    },
+    "client": {
+      "serverUrl": "http://localhost:8080"
+    }
+  },
   "video": {
     "updateInterval": 900000,
     "preprocessedQueueSize": 20,
@@ -31,12 +41,15 @@
     "backgroundFillRetryDelay": 2000,
     "errorRecoveryDelay": 1000,
     "debugUpdateInterval": 2000,
-    "statusDisplayDuration": 1500
+    "statusDisplayDuration": 1500,
+    "connectionTimeout": 5000,
+    "reconnectDelay": 2000
   },
   "retries": {
     "maxInitializationAttempts": 3,
     "maxQueueBuildAttempts": 3,
-    "maxVideoRetryAttempts": 3
+    "maxVideoRetryAttempts": 3,
+    "maxConnectionAttempts": 5
   },
   "files": {
     "supportedVideoExtensions": [
@@ -56,7 +69,8 @@
     "infoDuration": 5000,
     "errorDuration": 3000,
     "tempInfoDuration": 3000,
-    "startFullscreen": false
+    "startFullscreen": true,
+    "showErrorToast": false
   },
   "playback": {
     "skipSeconds": 5,

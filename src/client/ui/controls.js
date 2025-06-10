@@ -129,8 +129,18 @@ export default class Controls {
         }
     }
     
-    quit() {
-        if (window.electronAPI?.quitApplication) {
+quit() {
+        // Multiple methods to detect browser vs Electron
+        const isBrowserProtocol = window.location.protocol === 'http:' || window.location.protocol === 'https:';
+        const isBrowserWrapper = window.electronAPI && window.electronAPI._isBrowserWrapper === true;
+        const hasRealElectronAPI = window.electronAPI && !window.electronAPI._isBrowserWrapper;
+        
+        const isBrowser = isBrowserProtocol || isBrowserWrapper;
+        const isElectron = !isBrowser && hasRealElectronAPI;
+        
+        if (isElectron) {
+            // We're in Electron - allow quit
+            this.logger.log('Quitting Electron application');
             window.electronAPI.quitApplication();
         }
     }

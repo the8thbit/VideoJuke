@@ -54,6 +54,12 @@ export default class Overlays {
     }
     
     showError(message) {
+        // Check if error toasts are enabled
+        if (this.config.ui?.showErrorToast === false) {
+            this.logger.log(`Error toast suppressed: ${message}`);
+            return;
+        }
+        
         if (this.errorMessage) {
             this.errorMessage.textContent = message;
         }
