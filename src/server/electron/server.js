@@ -1,19 +1,19 @@
 const { app } = require('electron');
 const path = require('path');
 
-const WindowManager = require('./window/windowManager');
-const ConfigManager = require('./config/configManager');
-const VideoIndex = require('./video/videoIndex');
-const PreprocessedQueue = require('./queue/preprocessedQueue');
-const QueuePersistence = require('./queue/queuePersistence');
-const ReprocessHandler = require('./queue/reprocessHandler');
-const HistoryManager = require('./queue/historyManager');
-const IpcHandlers = require('./ipc/ipcHandlers');
-const Logger = require('./utils/logger');
+const WindowManager = require('./windowManager');
+const ConfigManager = require('../shared/config/configManager');
+const VideoIndex = require('../shared/video/videoIndex');
+const PreprocessedQueue = require('../shared/queue/preprocessedQueue');
+const QueuePersistence = require('../shared/queue/queuePersistence');
+const ReprocessHandler = require('../shared/queue/reprocessHandler');
+const HistoryManager = require('../shared/queue/historyManager');
+const IpcHandlers = require('./ipcHandlers');
+const Logger = require('../shared/utils/logger');
 
 class VideoPlayerServer {
     constructor() {
-        this.logger = new Logger('SERVER');
+        this.logger = new Logger('ELECTRON-SERVER');
         this.windowManager = null;
         this.configManager = null;
         this.videoIndex = null;

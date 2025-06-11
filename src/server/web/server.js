@@ -4,18 +4,17 @@ const http = require('http');
 const path = require('path');
 const cors = require('cors');
 
-const ConfigManager = require('./config/configManager');
-const VideoIndex = require('./video/videoIndex');
-const PreprocessedQueue = require('./queue/preprocessedQueue');
-const QueuePersistence = require('./queue/queuePersistence');
-const ReprocessHandler = require('./queue/reprocessHandler');
-const HistoryManager = require('./queue/historyManager');
-const Logger = require('./utils/logger');
-const FileUtils = require('./utils/fileUtils');
+const ConfigManager = require('../shared/config/configManager');
+const VideoIndex = require('../shared/video/videoIndex');
+const PreprocessedQueue = require('../shared/queue/preprocessedQueue');
+const QueuePersistence = require('../shared/queue/queuePersistence');
+const ReprocessHandler = require('../shared/queue/reprocessHandler');
+const HistoryManager = require('../shared/queue/historyManager');
+const Logger = require('../shared/utils/logger');
 
-class VideoPlayerStandaloneServer {
+class VideoPlayerWebServer {
     constructor() {
-        this.logger = new Logger('STANDALONE-SERVER');
+        this.logger = new Logger('WEB-SERVER');
         this.app = express();
         this.server = null;
         this.wss = null;
@@ -50,7 +49,7 @@ class VideoPlayerStandaloneServer {
     
     async start() {
         try {
-            this.logger.log('Starting VideoJuke standalone server...');
+            this.logger.log('Starting VideoJuke web server...');
             
             // Load configuration
             this.configManager = new ConfigManager(this.logger);
@@ -59,6 +58,7 @@ class VideoPlayerStandaloneServer {
             const serverConfig = this.configManager.config.network?.server || {};
             const port = serverConfig.port || 8080;
             const host = serverConfig.host || 'localhost';
+            const autoOpenBrowser = serverConfig.autoOpenBrowser !== false; // Default to true
             
             // Setup Express middleware
             this.setupMiddleware();
@@ -77,9 +77,15 @@ class VideoPlayerStandaloneServer {
             
             // Start server
             this.server.listen(port, host, () => {
-                this.logger.log(`VideoJuke server running on http://${host}:${port}`);
+                this.logger.log(`VideoJuke web server running on http://${host}:${port}`);
                 this.logger.log('WebSocket server ready for real-time communication');
-                this.logger.log(`Open http://${host}:${port} in your browser to use VideoJuke`);
+                
+                if (autoOpenBrowser) {
+                    this.logger.log('Auto-opening browser (configured in config.json)');
+                    this.openBrowser(host, port);
+                } else {
+                    this.logger.log(`Auto-open disabled. Open http://${host}:${port} in your browser to use VideoJuke`);
+                }
                 
                 // Start initialization
                 this.performInitialization();
@@ -88,6 +94,37 @@ class VideoPlayerStandaloneServer {
         } catch (error) {
             this.logger.error('Failed to start server', error);
             process.exit(1);
+        }
+    }
+
+    async openBrowser(host, port) {
+        try {
+            // Use dynamic import for ESM module
+            const openModule = await import('open');
+            const open = openModule.default;
+            
+            // Construct URL - use localhost if host is 0.0.0.0 (since 0.0.0.0 doesn't work in browsers)
+            const browserHost = host === '0.0.0.0' ? 'localhost' : host;
+            const url = `http://${browserHost}:${port}`;
+            
+            // Add a small delay to ensure server is fully ready
+            const openDelay = this.configManager.getTimeout('browserOpenDelay', 1000);
+            
+            setTimeout(async () => {
+                try {
+                    this.logger.log(`Opening browser to: ${url}`);
+                    await open(url);
+                    this.logger.log('Browser opened successfully');
+                } catch (openError) {
+                    this.logger.error('Failed to open browser automatically', openError);
+                    this.logger.log(`Please manually open: ${url}`);
+                }
+            }, openDelay);
+            
+        } catch (importError) {
+            this.logger.error('Failed to import open module for browser launch', importError);
+            const browserHost = host === '0.0.0.0' ? 'localhost' : host;
+            this.logger.log(`Please manually open: http://${browserHost}:${port}`);
         }
     }
     
@@ -105,7 +142,7 @@ class VideoPlayerStandaloneServer {
         });
         
         // Serve static client files with proper MIME types
-        this.app.use('/client', express.static(path.join(__dirname, '../client'), {
+        this.app.use('/client', express.static(path.join(__dirname, '../../client/web'), {
             setHeaders: (res, filePath) => {
                 if (filePath.endsWith('.js')) {
                     res.setHeader('Content-Type', 'application/javascript');
@@ -113,10 +150,19 @@ class VideoPlayerStandaloneServer {
             }
         }));
         
+        // Serve shared client files with proper MIME types
+        this.app.use('/shared', express.static(path.join(__dirname, '../../client/shared'), {
+            setHeaders: (res, filePath) => {
+                if (filePath.endsWith('.js')) {
+                    res.setHeader('Content-Type', 'application/javascript');
+                }
+            }
+        }));
+
         // Serve individual client files at root level
         this.app.get('/*.js', (req, res, next) => {
             const filename = req.params[0] + '.js';
-            const filePath = path.join(__dirname, '../client', filename);
+            const filePath = path.join(__dirname, '../../client/web', filename);
             res.setHeader('Content-Type', 'application/javascript');
             res.sendFile(filePath, (err) => {
                 if (err) {
@@ -422,12 +468,12 @@ class VideoPlayerStandaloneServer {
         
         // Serve the client application
         this.app.get('/', (req, res) => {
-            const htmlPath = path.join(__dirname, '../client/standalone.html');
+            const htmlPath = path.join(__dirname, '../../client/web/index.html');
             res.sendFile(htmlPath);
         });
         
         // Serve any other static files from client directory
-        this.app.use(express.static(path.join(__dirname, '../client'), {
+        this.app.use(express.static(path.join(__dirname, '../../client/web'), {
             setHeaders: (res, filePath) => {
                 if (filePath.endsWith('.js')) {
                     res.setHeader('Content-Type', 'application/javascript');
@@ -731,7 +777,7 @@ class VideoPlayerStandaloneServer {
 
 // Start server if this file is run directly
 if (require.main === module) {
-    const server = new VideoPlayerStandaloneServer();
+    const server = new VideoPlayerWebServer();
     
     // Graceful shutdown handlers
     const gracefulShutdown = async (signal) => {
@@ -799,4 +845,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = VideoPlayerStandaloneServer;
+module.exports = VideoPlayerWebServer;

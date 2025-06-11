@@ -1,14 +1,14 @@
-import Logger from './utils/logger.js';
-import LoadingScreen from './ui/loadingScreen.js';
-import VideoPlayer from './player/videoPlayer.js';
-import PlaybackQueue from './queue/playbackQueue.js';
-import Overlays from './ui/overlays.js';
-import Controls from './ui/controls.js';
+import Logger from '../shared/utils/logger.js';
+import LoadingScreen from '../shared/ui/loadingScreen.js';
+import VideoPlayer from '../shared/player/videoPlayer.js';
+import PlaybackQueue from '../shared/queue/playbackQueue.js';
+import Overlays from '../shared/ui/overlays.js';
+import Controls from '../shared/ui/controls.js';
 import ServerAPI from './serverAPI.js';
 
-class VideoPlayerStandaloneClient {
+class VideoPlayerWebClient {
     constructor() {
-        this.logger = new Logger('STANDALONE-CLIENT');
+        this.logger = new Logger('WEB-CLIENT');
         this.loadingScreen = new LoadingScreen(this.logger);
         this.serverAPI = null;
         this.videoPlayer = null;
@@ -24,7 +24,7 @@ class VideoPlayerStandaloneClient {
         this.firstVideoReady = false;
         
         // Initialize
-        this.logger.log('Starting standalone client...');
+        this.logger.log('Starting web client...');
         this.loadingScreen.show();
         this.setupPersistenceCallbacks();
         this.setupStartButton();
@@ -704,7 +704,7 @@ class VideoPlayerStandaloneClient {
 
 // Start client when DOM is ready
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => new VideoPlayerStandaloneClient());
+    document.addEventListener('DOMContentLoaded', () => new VideoPlayerWebClient());
 } else {
-    new VideoPlayerStandaloneClient();
+    new VideoPlayerWebClient();
 }

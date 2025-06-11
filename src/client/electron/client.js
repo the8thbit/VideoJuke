@@ -1,13 +1,13 @@
-import Logger from './utils/logger.js';
-import LoadingScreen from './ui/loadingScreen.js';
-import VideoPlayer from './player/videoPlayer.js';
-import PlaybackQueue from './queue/playbackQueue.js';
-import Overlays from './ui/overlays.js';
-import Controls from './ui/controls.js';
+import Logger from '../shared/utils/logger.js';
+import LoadingScreen from '../shared/ui/loadingScreen.js';
+import VideoPlayer from '../shared/player/videoPlayer.js';
+import PlaybackQueue from '../shared/queue/playbackQueue.js';
+import Overlays from '../shared/ui/overlays.js';
+import Controls from '../shared/ui/controls.js';
 
 class VideoPlayerClient {
     constructor() {
-        this.logger = new Logger('CLIENT');
+        this.logger = new Logger('ELECTRON-CLIENT');
         this.loadingScreen = new LoadingScreen(this.logger);
         this.videoPlayer = null;
         this.playbackQueue = null;
@@ -19,7 +19,7 @@ class VideoPlayerClient {
         this.hasStartedPlayback = false;
         
         // Initialize
-        this.logger.log('Starting client...');
+        this.logger.log('Starting electron client...');
         this.loadingScreen.show();
         this.setupPersistenceCallbacks();
         this.checkAndStart();
@@ -59,7 +59,7 @@ class VideoPlayerClient {
             await this.startInitializationMonitoring();
             
         } catch (error) {
-            this.logger.error('Failed to initialize client', error);
+            this.logger.error('Failed to initialize electron client', error);
             this.loadingScreen.showError('Initialization failed');
         }
     }

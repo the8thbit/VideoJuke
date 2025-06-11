@@ -17,7 +17,7 @@ class WindowManager {
             webPreferences: {
                 nodeIntegration: false,
                 contextIsolation: true,
-                preload: path.join(__dirname, '..', '..', '..', 'preload.js')
+                preload: path.join(__dirname, '..', '..', 'client', 'electron', 'preload.js')
             },
             show: false,
             autoHideMenuBar: true,
@@ -38,8 +38,8 @@ class WindowManager {
         // Set logger window reference
         this.logger.setWindow(this.mainWindow);
         
-        // Load HTML
-        const htmlPath = path.join(__dirname, '..', '..', 'client', 'index.html');
+        // Load HTML - FIXED PATH
+        const htmlPath = path.join(__dirname, '..', '..', 'client', 'electron', 'index.html');
         this.mainWindow.loadFile(htmlPath);
         
         // Show window when ready

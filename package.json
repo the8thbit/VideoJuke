@@ -6,17 +6,12 @@
   "author": "",
   "license": "AGPL-3.0-or-later",
   "scripts": {
-    "start": "electron .",
-    "start:standalone": "npm run start:both",
-    "start:both": "concurrently \"npm run start:server\" \"npm run start:client\"",
-    "start:server": "node src/server/standalone-server.js",
-    "start:client": "node src/client/standalone-client.js",
-    "start:electron": "electron .",
-    "dev": "electron . --dev",
-    "dev:server": "nodemon src/server/standalone-server.js",
-    "dev:client": "nodemon src/client/standalone-client.js",
-    "build": "electron-builder",
-    "postinstall": "electron-builder install-app-deps"
+    "start": "npm run electron",
+    "electron": "electron src/server/electron/main.js",
+    "web": "node src/server/web/server.js",
+    "dev:electron": "electron src/server/electron/main.js --dev",
+    "dev:web": "nodemon src/server/web/server.js",
+    "build": "electron-builder"
   },
   "devDependencies": {
     "electron-builder": "^26.0.12",

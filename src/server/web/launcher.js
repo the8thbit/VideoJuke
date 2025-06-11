@@ -1,6 +1,6 @@
 const path = require('path');
-const ConfigManager = require('../server/config/configManager');
-const Logger = require('../server/utils/logger');
+const ConfigManager = require('../shared/config/configManager');
+const Logger = require('../shared/utils/logger');
 
 // Use dynamic import for ESM module
 let openBrowser;

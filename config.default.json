@@ -6,7 +6,8 @@
     "server": {
       "enabled": true,
       "port": 8080,
-      "host": "localhost"
+      "host": "localhost",
+      "autoOpenBrowser": true
     },
     "client": {
       "serverUrl": "http://localhost:8080"
@@ -43,7 +44,8 @@
     "debugUpdateInterval": 2000,
     "statusDisplayDuration": 1500,
     "connectionTimeout": 5000,
-    "reconnectDelay": 2000
+    "reconnectDelay": 2000,
+    "browserOpenDelay": 1000
   },
   "retries": {
     "maxInitializationAttempts": 3,

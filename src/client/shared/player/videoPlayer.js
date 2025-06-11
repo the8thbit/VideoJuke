@@ -183,7 +183,7 @@ export default class VideoPlayer {
             let videoUrl;
             try {
                 if (videoData.serverUrl) {
-                    // Standalone mode - ensure proper URL construction
+                    // Web mode - ensure proper URL construction
                     if (videoData.serverUrl.startsWith('http')) {
                         videoUrl = videoData.serverUrl;
                         this.logger.log(`Using absolute serverUrl: ${videoUrl}`);

@@ -96,7 +96,7 @@ export default class Crossfade {
         // Construct proper video URL
         let videoUrl;
         if (nextVideoData.serverUrl) {
-            // Standalone mode - use HTTP URL
+            // Web mode - use HTTP URL
             videoUrl = nextVideoData.serverUrl.startsWith('http') ? 
                 nextVideoData.serverUrl : 
                 `${window.location.origin}${nextVideoData.serverUrl}`;

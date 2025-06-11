@@ -193,7 +193,7 @@ export default class PlaybackQueue {
             // Construct video URL properly
             let videoUrl;
             if (videoData.serverUrl) {
-                // Standalone mode - use HTTP URL
+                // Web mode - use HTTP URL
                 videoUrl = videoData.serverUrl.startsWith('http') ? 
                     videoData.serverUrl : 
                     `${window.location.origin}${videoData.serverUrl}`;

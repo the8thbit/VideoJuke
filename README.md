@@ -1,237 +1,186 @@
 # VideoJuke
 
-A random video player that continuously plays videos from configured directories with smooth transitions and intelligent queue management. Now available in both standalone and Electron versions with client-server architecture.
+A random video player that continuously plays videos from configured directories with smooth transitions, intelligent queue management, and dual-architecture support for both desktop and web deployment.
 
 ## Overview
 
-VideoJuke is available in two modes:
-- **Electron Mode**: Traditional desktop application (default, same as v1.x)
-- **Standalone Mode**: Separate HTTP server and web client for remote access
+VideoJuke supports two deployment modes:
+- **Electron Mode**: Traditional desktop application with native OS integration
+- **Web Mode**: HTTP server with browser-based client for remote access
 
-Features:
-- Plays random videos from multiple directories
-- Preprocesses videos for smooth playback (audio normalization)
-- Supports crossfade transitions between videos
-- Maintains robust dual-layer history for navigation
-- Provides keyboard controls for all features
-- Real-time WebSocket communication for status updates
+## Features
+
+- **Random Video Playback**: Continuously plays videos from multiple configured directories
+- **Smart Preprocessing**: Audio normalization and format optimization for smooth playback
+- **Crossfade Transitions**: Smooth blending between videos with configurable timing
+- **Dual-Layer History**: Recent playback history + long-term persistence for navigation
+- **Queue Management**: Intelligent preprocessing queue with automatic refilling
+- **Real-time Communication**: WebSocket updates for server status and progress
+- **Keyboard Controls**: Full playback control without mouse interaction
+- **Session Persistence**: Maintains queue and history across restarts
 
 ## Quick Start
 
-### Original Electron Mode (Default)
+### Desktop Mode (Electron)
 
 ```bash
 # Install dependencies
 npm install
 
-# Start VideoJuke (same as always)
+# Start desktop application
 npm start
+# or
+npm run electron
 ```
 
-### New Standalone Mode
+### Web Mode (Server + Browser)
 
 ```bash
-# Start both server and client in standalone mode
-npm run start:standalone
+# Install dependencies
+npm install
 
-# Or run them separately:
-# Terminal 1: Start server
-npm run start:server
+# Start web server
+npm run web
 
-# Terminal 2: Start client (opens browser)
-npm run start:client
+# Open browser to http://localhost:8080
 ```
 
-On first run, edit `config.json` to add your video directories:
+### Development Mode
+
+```bash
+# Electron development (with DevTools)
+npm run dev:electron
+
+# Web server development (with auto-restart)
+npm run dev:web
+```
+
+## Initial Setup
+
+1. **First Run**: On first startup, VideoJuke creates `config.json` from `config.default.json`
+
+2. **Configure Video Directories**: Edit `config.json` to add your video folders:
    ```json
    {
      "directories": [
-       "C:\\Videos\\Collection1",
-       "D:\\Movies\\Collection2"
-     ],
+       "C:\\Users\\YourName\\Videos",
+       "D:\\Movies\\Collection",
+       "/path/to/your/videos"
+     ]
+   }
+   ```
+
+3. **Network Configuration** (Web Mode Only):
+   ```json
+   {
      "network": {
        "server": {
+         "enabled": true,
          "port": 8080,
          "host": "localhost"
-       },
-       "client": {
-         "serverUrl": "http://localhost:8080"
        }
      }
    }
    ```
 
-5. Restart the server: `npm run start:server`
-
-### Electron Mode (Traditional)
-
-```bash
-npm start
-# or
-npm run start:electron
-```
-
-## Network Configuration
-
-The standalone mode supports remote access through network configuration:
-
-```json
-{
-  "network": {
-    "server": {
-      "enabled": true,
-      "port": 8080,
-      "host": "0.0.0.0"  // Allow external connections
-    },
-    "client": {
-      "serverUrl": "http://192.168.1.100:8080"  // Server IP
-    }
-  }
-}
-```
-
-**Security Note**: When exposing the server externally, ensure your network is secure as video files will be accessible via HTTP.
-
-## Recent Changes (v2.0.0)
-
-### New Architecture
-- **Separated client and server**: Run independently for remote access
-- **HTTP/WebSocket communication**: Replaces Electron IPC for flexibility
-- **Real-time updates**: WebSocket connection for initialization progress and logs
-- **Browser compatibility**: Client runs in any modern web browser
-- **Backward compatibility**: Electron mode still available
-
-### New Commands
-- `npm start` - Start original Electron app (unchanged for backward compatibility)
-- `npm run start:standalone` - Start both server and client in standalone mode
-- `npm run start:server` - Start server only
-- `npm run start:client` - Start client only (opens browser)
-- `npm run start:electron` - Alias for original Electron mode
-- `npm run dev:server` - Development server with auto-restart
-- `npm run dev:client` - Development client launcher
-
-### Network Features
-- **Remote access**: Access VideoJuke from any device on the network
-- **Auto-reconnection**: Client automatically reconnects to server
-- **Connection status**: Visual indicator of server connection state
-- **Graceful degradation**: Handles network interruptions smoothly
+4. **Restart**: Restart VideoJuke to scan your video directories
 
 ## Project Structure
 
 ```
 videojuke/
-├── main.js                    # Electron entry point (legacy)
-├── preload.js                 # IPC bridge (Electron mode)
-├── config.json                # User configuration
-├── cache/                     # Application cache and state
-│   ├── persisted-history.json # Long-term playback history
-│   ├── queue-state.json       # Saved queue state
-│   └── video-index.json       # Cached video index
-├── temp/                      # Processed video cache
 ├── src/
-│   ├── server/                # Server process (Node.js)
-│   │   ├── standalone-server.js # Standalone HTTP server
-│   │   ├── server.js          # Electron main process
-│   │   ├── config/            # Configuration management
-│   │   ├── video/             # Video indexing and preprocessing
-│   │   ├── queue/             # Queue and history management
-│   │   │   ├── preprocessedQueue.js
-│   │   │   ├── queuePersistence.js
-│   │   │   ├── reprocessHandler.js
-│   │   │   └── historyManager.js
-│   │   ├── window/            # Window management (Electron)
-│   │   └── ipc/               # IPC handlers (Electron)
-│   └── client/                # Client process (Browser/Electron)
-│       ├── standalone-client.js # Client launcher
-│       ├── standalone.html    # Standalone client HTML
-│       ├── index.html         # Electron client HTML
-│       ├── client.js          # Main client logic
-│       ├── serverAPI.js       # HTTP/WebSocket API wrapper
-│       ├── player/            # Video playback
-│       │   ├── videoPlayer.js # Main player logic
-│       │   ├── crossfade.js   # Crossfade transitions
-│       │   └── blur.js        # Blur effects
-│       ├── queue/             # Playback queue
-│       ├── ui/                # User interface
-│       └── utils/             # Utilities
+│   ├── server/                    # Server-side components
+│   │   ├── electron/              # Electron main process
+│   │   │   ├── server.js          # Electron server entry point
+│   │   │   ├── windowManager.js   # Window management
+│   │   │   └── ipcHandlers.js     # IPC communication
+│   │   ├── web/                   # Web server
+│   │   │   └── server.js          # Web server entry point
+│   │   └── shared/                # Shared server components
+│   │       ├── config/            # Configuration management
+│   │       ├── video/             # Video processing & indexing
+│   │       ├── queue/             # Queue & history management
+│   │       └── utils/             # Utilities & logging
+│   └── client/                    # Client-side components
+│       ├── electron/              # Electron renderer
+│       │   ├── main.js            # Electron app entry point
+│       │   ├── client.js          # Electron client logic
+│       │   └── index.html         # Electron UI
+│       ├── web/                   # Web client
+│       │   ├── client.js          # Web client logic
+│       │   ├── serverAPI.js       # HTTP/WebSocket API wrapper
+│       │   └── index.html         # Web UI
+│       └── shared/                # Shared client components
+│           ├── player/            # Video playback engine
+│           ├── queue/             # Client-side queue management
+│           ├── ui/                # User interface components
+│           └── utils/             # Client utilities
+├── config.json                    # User configuration
+├── config.default.json            # Default configuration template
+├── cache/                         # Application cache
+│   ├── video-index.json           # Cached video directory index
+│   ├── queue-state.json           # Saved queue state
+│   └── persisted-history.json     # Long-term playback history
+└── temp/                          # Processed video cache
 ```
 
 ## Architecture
 
-### Standalone Mode (New)
-Two independent processes communicate via HTTP and WebSocket:
+### Electron Mode
+- **Main Process**: Handles video processing, queue management, and system integration
+- **Renderer Process**: Manages video playback, UI, and user interaction
+- **IPC Communication**: Electron's inter-process communication for data exchange
+- **File Access**: Direct file system access for optimal performance
 
-**Server Process:**
-- HTTP server with REST API endpoints
-- WebSocket server for real-time communication
-- Video processing and queue management
-- File serving for processed videos
-- Background indexing and monitoring
-
-**Client Process:**
-- Web browser application
-- HTTP requests for video operations
-- WebSocket connection for live updates
-- Video playback and UI management
-- Automatic reconnection handling
-
-### Electron Mode (Traditional)
-Two-process architecture with IPC communication (unchanged from v1.x).
-
-### API Endpoints
-
-The standalone server exposes these REST endpoints:
-
-- `GET /` - Serve client application
-- `GET /api/config` - Get configuration
-- `GET /api/queue-status` - Get queue status
-- `GET /api/detailed-stats` - Get detailed statistics
-- `GET /api/next-video` - Get next video
-- `GET /api/previous-video` - Get previous video
-- `POST /api/video-ended` - Report video ended
-- `POST /api/video-error` - Report video error
-- `POST /api/add-to-history` - Add video to history
-- `POST /api/ensure-video-processed` - Reprocess video
-- `GET /videos/*` - Serve processed video files
-
-### WebSocket Events
-
-Real-time communication via WebSocket:
-
-- `initialization-update` - Server initialization progress
-- `main-log` - Server log messages
-- Connection status monitoring
+### Web Mode
+- **Server Process**: HTTP server with REST API and WebSocket support
+- **Client Process**: Browser-based application with real-time updates
+- **HTTP API**: RESTful endpoints for video operations and configuration
+- **WebSocket**: Real-time communication for status updates and logging
+- **Video Streaming**: HTTP range request support for efficient video delivery
 
 ## Configuration
 
-Edit `config.json` to customize behavior:
+### Core Settings
 
 ```json
 {
   "directories": ["path/to/videos"],
+  "video": {
+    "preprocessedQueueSize": 20,
+    "playbackQueueSize": 50,
+    "playbackQueueInitializationThreshold": 10,
+    "playbackHistorySize": 10,
+    "persistedHistorySize": 5000,
+    "updateInterval": 900000
+  },
+  "crossfade": {
+    "enabled": false,
+    "duration": 500
+  },
+  "blur": {
+    "enabled": false,
+    "maxAmount": 8
+  },
+  "ui": {
+    "startFullscreen": true,
+    "showErrorToast": false,
+    "infoDuration": 5000
+  }
+}
+```
+
+### Network Configuration (Web Mode)
+
+```json
+{
   "network": {
     "server": {
       "enabled": true,
       "port": 8080,
-      "host": "localhost"
-    },
-    "client": {
-      "serverUrl": "http://localhost:8080"
+      "host": "0.0.0.0"
     }
-  },
-  "video": {
-    "preprocessedQueueSize": 20,
-    "playbackQueueSize": 50,
-    "playbackHistorySize": 10,
-    "persistedHistorySize": 5000
-  },
-  "crossfade": {
-    "enabled": true,
-    "duration": 500
-  },
-  "blur": {
-    "enabled": true,
-    "maxAmount": 8
   },
   "timeouts": {
     "connectionTimeout": 5000,
@@ -248,67 +197,74 @@ Edit `config.json` to customize behavior:
 ### Playback
 - `Space` - Play/Pause
 - `N` - Next video
-- `P` - Previous video
+- `P` - Previous video  
 - `R` - Restart current video
 - `L` - Toggle loop
 - `←/→` - Skip backward/forward 5 seconds
-- `↑/↓` - Increase/decrease speed
+- `↑/↓` - Increase/decrease playback speed
 - `0` - Reset speed to 1x
 
-### Effects
+### Audio & Effects
 - `M` - Toggle mute
-- `F` - Toggle crossfade
+- `F` - Toggle crossfade transitions
 - `B` - Toggle blur effects
 
-### Information
-- `I` - Show video info
-- `T` - Show title only
-- `Q` - Toggle debug overlay
-- `?` or `/` - Show controls
+### Information & Debug
+- `I` - Show video information overlay
+- `T` - Show video title only
+- `Q` - Toggle debug information
+- `?` or `/` - Show keyboard controls help
 
 ### Application
-- `ESC` - Quit (Electron) / Show message (Browser)
+- `ESC` - Quit application (Electron) / Close tab (Web)
 
-## Features
+## API Reference (Web Mode)
 
-### Client-Server Architecture
-- **Separation of concerns**: Server handles processing, client handles playback
-- **Remote access**: Connect from any device on the network
-- **Scalability**: Multiple clients can connect to one server
-- **Flexibility**: Choose between Electron desktop app or web browser
+### REST Endpoints
 
-### Real-time Communication
-- **WebSocket integration**: Live updates of server status
-- **Automatic reconnection**: Client reconnects after network interruptions
-- **Connection monitoring**: Visual feedback of connection state
-- **Graceful degradation**: Continues working during brief disconnections
+- `GET /api/config` - Get application configuration
+- `GET /api/queue-status` - Get queue and initialization status
+- `GET /api/detailed-stats` - Get detailed statistics
+- `GET /api/next-video` - Get next video from queue
+- `GET /api/previous-video` - Get previous video from history
+- `POST /api/video-ended` - Report video completion
+- `POST /api/video-error` - Report video error
+- `POST /api/add-to-history` - Add video to history
+- `POST /api/ensure-video-processed` - Reprocess/validate video
+- `GET /videos?filename=<encoded>` - Stream video files with range support
 
-### Dual-Layer History
-- **Playback History**: Recent videos (default 10) for quick navigation
-- **Persisted History**: Long-term tracking (default 5000) with file persistence
-- Automatic temp file protection for recent videos
-- Intelligent fallback between history layers
+### WebSocket Events
 
-### Crossfade Transitions
-When enabled, videos blend smoothly with:
-- Configurable duration (default 500ms)
-- Volume fading
-- Optional blur integration
-- Automatic timing based on video length
+- `initialization-update` - Server initialization progress
+- `main-log` - Server log messages with timestamp and level
 
-### Session Persistence
-- Queue state saved on exit in `cache/`
-- Playback history preserved across sessions
-- Persisted history maintained long-term
-- Resumes from where you left off
+## Supported Video Formats
 
-### Automatic Recovery
-- Handles missing files gracefully
-- Skips unplayable videos
-- Maintains minimum queue levels
-- Reprocesses videos as needed
-- Network reconnection handling
-- Comprehensive error logging
+**Primary**: MP4, AVI, MOV, WMV, FLV, WebM, MKV  
+**Additional**: M4V, 3GP, MPEG, MPG, TS, MTS, M2TS
+
+All videos are preprocessed with:
+- Audio normalization (loudnorm filter)
+- MP4 container optimization
+- Fast-start encoding for web streaming
+
+## Dependencies
+
+### Core
+- **Electron** - Desktop application framework
+- **Express** - Web server framework
+- **WebSocket** - Real-time communication
+- **FFmpeg** - Video processing and metadata extraction
+
+### Video Processing
+- **fluent-ffmpeg** - FFmpeg wrapper for Node.js
+- **ffmpeg-static** - Static FFmpeg binaries
+- **ffprobe-static** - Static FFprobe binaries
+
+### Utilities
+- **glob** - File pattern matching
+- **mime-types** - MIME type detection
+- **cors** - Cross-origin resource sharing
 
 ## Development
 
@@ -317,109 +273,81 @@ When enabled, videos blend smoothly with:
 npm run build
 ```
 
-### Development Mode
+### Development Scripts
 ```bash
-# Server with auto-restart
-npm run dev:server
+# Electron with DevTools
+npm run dev:electron
 
-# Client launcher with auto-restart
-npm run dev:client
-
-# Traditional Electron development
-npm run dev
+# Web server with auto-restart
+npm run dev:web
 ```
 
-### Testing Network Mode
-1. Start server: `npm run start:server`
-2. Open browser to: `http://localhost:8080`
-3. Check different devices on network: `http://[server-ip]:8080`
+### File Locations
+- **Configuration**: `config.json` (user), `config.default.json` (template)
+- **Cache**: `cache/` directory for persistent data
+- **Temporary Files**: `temp/` directory for processed videos
+- **Logs**: Console output with structured logging
 
 ## Deployment
 
-### Standalone Server
-The server can run on any Node.js-capable system:
+### Desktop Distribution
+```bash
+npm run build
+```
+Creates platform-specific installers in `dist/` directory.
 
+### Web Server Deployment
 ```bash
 # Production server
-NODE_ENV=production npm run start:server
+NODE_ENV=production npm run web
 
-# With PM2 for process management
-pm2 start src/server/standalone-server.js --name videojuke-server
+# Process manager (recommended)
+pm2 start src/server/web/server.js --name videojuke-server
 ```
 
-### Docker (Future)
-Future versions may include Docker support for easy deployment.
+### Docker (Future Enhancement)
+Container support planned for simplified deployment and scaling.
 
-## Technical Details
+## Browser Compatibility (Web Mode)
 
-### Supported Formats
-Primary: MP4, AVI, MOV, WMV, FLV, WebM, MKV
-Additional: M4V, 3GP, MPEG, MPG, TS, MTS, M2TS
+### Required Features
+- Modern ES6+ JavaScript support
+- HTML5 video with range request support  
+- WebSocket API
+- Fetch API for HTTP requests
 
-### Dependencies
-- **Server**: Express, WebSocket, FFmpeg, fluent-ffmpeg
-- **Client**: Modern web browser with ES6+ support
-- **Electron**: Electron framework (legacy mode)
-- **Shared**: glob, mime-types
+### Recommended Browsers
+- Chrome/Chromium 80+
+- Firefox 75+
+- Safari 13+
+- Edge 80+
 
-### File Locations
-- `config.json` - User configuration
-- `cache/queue-state.json` - Saved queue state
-- `cache/persisted-history.json` - Long-term history
-- `cache/video-index.json` - Cached video list
-- `temp/` - Processed video cache
-
-### Browser Requirements
-- Modern browser with WebSocket support
-- HTML5 video support
-- ES6+ JavaScript support
-- No Flash or additional plugins required
+### Mobile Support
+Basic mobile browser support available, though optimized for desktop use.
 
 ## Troubleshooting
 
-### Connection Issues
-- Check server is running: `http://localhost:8080/health`
-- Verify port not in use by other applications
-- Check firewall settings for external access
-- Ensure WebSocket support in browser
+### Common Issues
 
-### Video Playback Issues
-- Verify video formats are supported by browser
-- Check network speed for streaming
-- Monitor browser developer console for errors
-- Ensure FFmpeg processing completed successfully
+**No videos found**: Check `config.json` directory paths and file permissions
 
-### Server Issues
-- Check console logs for server errors
-- Verify config.json syntax is valid
-- Ensure video directories exist and contain supported files
-- Check available disk space for temp files
-- Monitor server memory usage during processing
+**Autoplay blocked**: Web browsers require user interaction before playing audio/video
 
-### Performance Optimization
-- Reduce `preprocessedQueueSize` for lower memory usage
-- Adjust `playbackQueueSize` based on network speed
-- Use wired connection for better video streaming
-- Close other bandwidth-intensive applications
+**Connection issues** (Web mode): Verify server is running and firewall allows the configured port
 
-## Migration from v1.x
+**Performance issues**: Reduce `preprocessedQueueSize` or check available disk space in `temp/`
 
-**No migration required!** VideoJuke v2.0 maintains full backward compatibility:
+### Debug Information
+- Press `Q` to view queue status, processing statistics, and connection state
+- Check console logs for detailed error information
+- Monitor `cache/` directory for state persistence issues
 
-1. `npm start` works exactly as before (launches Electron app)
-2. All existing cache and history files remain compatible
-3. Configuration format is unchanged (new network settings are optional)
+### Recovery Features
+- Automatic queue rebuilding on startup
+- Session state persistence across restarts  
+- Graceful handling of missing or corrupted video files
+- Network reconnection for web clients
 
-**To try the new standalone mode:**
-- `npm run start:standalone` for combined server+client
-- `npm run start:server` then `npm run start:client` for separate mode
+## License
 
-## Notes
-
-- Standalone mode serves videos over HTTP for browser compatibility
-- Electron mode still uses `file://` URLs for optimal performance
-- WebSocket connection provides real-time updates but isn't required for basic functionality
-- Client automatically falls back to polling if WebSocket connection fails
-- Server can run headless for deployment scenarios
-- Multiple clients can connect to the same server simultaneously
-- History and queue state are managed server-side for consistency
+AGPL-3.0-or-later
