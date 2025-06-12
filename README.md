@@ -15,6 +15,7 @@ VideoJuke supports two deployment modes:
 - **Crossfade Transitions**: Smooth blending between videos with configurable timing
 - **Dual-Layer History**: Recent playback history + long-term persistence for navigation
 - **Queue Management**: Intelligent preprocessing queue with automatic refilling
+- **Seasonal Directories**: Time-based conditional video selection with configurable probability
 - **Real-time Communication**: WebSocket updates for server status and progress
 - **Keyboard Controls**: Full playback control without mouse interaction
 - **Session Persistence**: Maintains queue and history across restarts
@@ -247,6 +248,389 @@ All videos are preprocessed with:
 - Audio normalization (loudnorm filter)
 - MP4 container optimization
 - Fast-start encoding for web streaming
+
+## Seasonal Directories
+
+VideoJuke supports "seasonal directories" that are conditionally active based on time/date conditions with configurable probability. This powerful feature allows you to create special video collections that only appear during specific times, dates, or conditions.
+
+### Overview
+
+Seasonal directories work by:
+1. **Time Evaluation**: Before each video selection, VideoJuke evaluates all seasonal directory conditions against the current time
+2. **Probability Testing**: For each directory whose conditions match, a random probability roll is performed against the configured `likelihood`
+3. **Selection**: If the probability check passes, a random video is selected from that seasonal directory instead of the regular directories
+4. **Fallback**: If no seasonal directories are active or selected, normal random selection from regular directories occurs
+
+### Basic Configuration
+
+Add seasonal directories to your `config.json`:
+
+```json
+{
+  "seasonalDirectories": [
+    {
+      "directory": "./seasonal/tuesday_morning",
+      "likelihood": 0.001,
+      "conditions": {
+        "dayOfWeek": [2],
+        "hourRange": [6, 12]
+      }
+    }
+  ]
+}
+```
+
+Each seasonal directory object requires:
+- **directory**: Path to the video directory (relative or absolute)
+- **likelihood**: Probability value from 0.0 to 1.0 (0.001 = 0.1%, 0.05 = 5%, etc.)
+- **conditions**: Object containing one or more time/date conditions (ALL must match)
+
+### Time and Date Conditions Reference
+
+#### Day of Week (`dayOfWeek`)
+
+Matches specific days of the week using numeric values:
+- `0` = Sunday, `1` = Monday, `2` = Tuesday, `3` = Wednesday, `4` = Thursday, `5` = Friday, `6` = Saturday
+
+```json
+{
+  "dayOfWeek": [1, 2, 3, 4, 5],  // Monday through Friday (weekdays)
+  "dayOfWeek": [0, 6],           // Saturday and Sunday (weekends)
+  "dayOfWeek": [5],              // Friday only
+  "dayOfWeek": 2                 // Tuesday only (single value)
+}
+```
+
+#### Hour Conditions
+
+**Specific Hours (`hour`)**
+```json
+{
+  "hour": [9, 12, 15],          // 9AM, 12PM, and 3PM exactly
+  "hour": 23,                   // 11PM only
+  "hour": [0, 1, 2, 3, 4, 5]    // Midnight through 5AM
+}
+```
+
+**Hour Ranges (`hourRange`)**
+```json
+{
+  "hourRange": [9, 17],         // 9AM to 5PM (5PM not included)
+  "hourRange": [22, 6],         // 10PM to 6AM (overnight range)
+  "hourRange": [0, 24],         // All day (equivalent to no hour restriction)
+  "hourRange": [12, 13]         // Noon hour only
+}
+```
+
+**Important**: Hour ranges use 24-hour format and the end hour is exclusive. Overnight ranges (where start > end) automatically wrap around midnight.
+
+#### Minute Conditions
+
+**Specific Minutes (`minute`)**
+```json
+{
+  "minute": [0, 15, 30, 45],    // Quarter hours
+  "minute": [33],               // 33 minutes past any hour
+  "minute": 0                   // Top of every hour
+}
+```
+
+**Minute Parity (`minuteParity`)**
+```json
+{
+  "minuteParity": "even",       // All even minutes (0, 2, 4, 6, ...)
+  "minuteParity": "odd"         // All odd minutes (1, 3, 5, 7, ...)
+}
+```
+
+#### Day of Month (`dayOfMonth`)
+
+Matches specific days within any month:
+```json
+{
+  "dayOfMonth": [1],            // First day of every month
+  "dayOfMonth": [13],           // 13th of every month
+  "dayOfMonth": [1, 15],        // 1st and 15th of every month
+  "dayOfMonth": [28, 29, 30, 31] // End of month days
+}
+```
+
+**Note**: February and 30-day months will never match day 31, and February will only match days 29+ in leap years.
+
+#### Month (`month`)
+
+Matches specific months using numeric values (1-12):
+```json
+{
+  "month": [12],                // December only
+  "month": [6, 7, 8],          // Summer months (June, July, August)
+  "month": [12, 1, 2],         // Winter months
+  "month": 10                  // October only
+}
+```
+
+#### Year (`year`)
+
+Matches specific years:
+```json
+{
+  "year": [2024],              // Only during 2024
+  "year": [2024, 2025, 2026],  // Multiple specific years
+  "year": 2027                 // Single year
+}
+```
+
+#### Date Ranges (`dateRange`)
+
+Matches a specific date range using ISO date strings:
+```json
+{
+  "dateRange": ["2024-12-20", "2024-12-31"],  // Holiday season 2024
+  "dateRange": ["2024-07-01", "2024-07-07"],  // First week of July 2024
+  "dateRange": ["2024-01-01", "2024-01-01"]   // New Year's Day 2024 only
+}
+```
+
+**Important**: Both start and end dates are inclusive. Times default to midnight (00:00:00).
+
+### Complex Examples
+
+#### Friday the 13th
+```json
+{
+  "directory": "./seasonal/friday_13th",
+  "likelihood": 0.02,
+  "conditions": {
+    "dayOfWeek": [5],
+    "dayOfMonth": [13]
+  }
+}
+```
+
+#### Business Hours Weekdays
+```json
+{
+  "directory": "./seasonal/office_hours",
+  "likelihood": 0.1,
+  "conditions": {
+    "dayOfWeek": [1, 2, 3, 4, 5],
+    "hourRange": [9, 17]
+  }
+}
+```
+
+#### Late Night Weekends
+```json
+{
+  "directory": "./seasonal/weekend_late",
+  "likelihood": 0.05,
+  "conditions": {
+    "dayOfWeek": [5, 6],
+    "hourRange": [23, 3]
+  }
+}
+```
+
+#### Every Third Day at 33 Minutes Past the Hour
+```json
+{
+  "directory": "./seasonal/third_day_33min",
+  "likelihood": 0.001,
+  "conditions": {
+    "dayOfMonth": [3, 6, 9, 12, 15, 18, 21, 24, 27, 30],
+    "minute": [33]
+  }
+}
+```
+
+#### Holiday Season with High Likelihood
+```json
+{
+  "directory": "./seasonal/holidays",
+  "likelihood": 0.3,
+  "conditions": {
+    "month": [12],
+    "dayOfMonth": [20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+  }
+}
+```
+
+#### Even Minutes During Odd Hours
+```json
+{
+  "directory": "./seasonal/even_odd",
+  "likelihood": 0.01,
+  "conditions": {
+    "hour": [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23],
+    "minuteParity": "even"
+  }
+}
+```
+
+#### Summer 2024 Only
+```json
+{
+  "directory": "./seasonal/summer_2024",
+  "likelihood": 0.05,
+  "conditions": {
+    "year": [2024],
+    "month": [6, 7, 8]
+  }
+}
+```
+
+#### Specific Date Range with Time
+```json
+{
+  "directory": "./seasonal/conference_week",
+  "likelihood": 0.2,
+  "conditions": {
+    "dateRange": ["2024-10-14", "2024-10-18"],
+    "hourRange": [8, 18]
+  }
+}
+```
+
+### Advanced Configuration Patterns
+
+#### Multiple Seasonal Directories
+```json
+{
+  "seasonalDirectories": [
+    {
+      "directory": "./seasonal/morning_motivation",
+      "likelihood": 0.02,
+      "conditions": {
+        "dayOfWeek": [1, 2, 3, 4, 5],
+        "hourRange": [6, 9]
+      }
+    },
+    {
+      "directory": "./seasonal/friday_party",
+      "likelihood": 0.05,
+      "conditions": {
+        "dayOfWeek": [5],
+        "hourRange": [17, 23]
+      }
+    },
+    {
+      "directory": "./seasonal/weekend_chill",
+      "likelihood": 0.03,
+      "conditions": {
+        "dayOfWeek": [0, 6]
+      }
+    }
+  ]
+}
+```
+
+#### Overlapping Conditions
+When multiple seasonal directories match the current time, VideoJuke evaluates them in the order they appear in the configuration. The first directory to pass its probability check wins.
+
+#### High vs Low Likelihood Examples
+```json
+{
+  "likelihood": 0.001,  // 0.1% - Very rare, special occasions
+  "likelihood": 0.01,   // 1% - Uncommon but noticeable  
+  "likelihood": 0.05,   // 5% - Regular seasonal content
+  "likelihood": 0.1,    // 10% - Frequent themed content
+  "likelihood": 0.5,    // 50% - Dominant during active period
+  "likelihood": 1.0     // 100% - Always active when conditions match
+}
+```
+
+### Time Zone Behavior
+
+All time evaluations use the server's local time zone. The system does not currently support multiple time zones or UTC-based conditions.
+
+### Edge Cases and Special Behaviors
+
+#### Leap Years
+- February 29th will only match `dayOfMonth: [29]` during leap years
+- Other February dates work normally
+
+#### Month Boundaries
+- Day 31 conditions never match in months with fewer than 31 days
+- Day 30 conditions never match in February
+
+#### Overnight Hour Ranges
+- `"hourRange": [22, 6]` correctly handles midnight crossing
+- Evaluation occurs at video selection time, so a 6-hour video starting at 11PM may cross into different conditions
+
+#### Daylight Saving Time
+- Hour-based conditions follow local system time including DST transitions
+- During "spring forward" (lost hour), conditions may not match the skipped hour
+- During "fall back" (repeated hour), conditions match during both instances of the repeated hour
+
+#### System Clock Changes
+- Conditions are evaluated in real-time based on the current system clock
+- Manual clock adjustments immediately affect seasonal directory activation
+
+### Debugging and Monitoring
+
+VideoJuke provides extensive logging for seasonal directory behavior:
+
+```
+[2024-01-15T14:33:00.000Z] [MAIN] Checking seasonal conditions at 2024-01-15T14:33:00.000Z (day=1, hour=14, minute=33)
+[2024-01-15T14:33:00.000Z] [MAIN] Seasonal directory active: ./seasonal/monday_afternoon (likelihood: 0.05)
+[2024-01-15T14:33:00.000Z] [MAIN] Probability check passed: 0.023 < 0.05, selecting from ./seasonal/monday_afternoon
+[2024-01-15T14:33:00.000Z] [MAIN] Selected seasonal video: motivational_monday.mp4 from ./seasonal/monday_afternoon
+```
+
+### Best Practices
+
+#### Directory Organization
+```
+videos/
+├── regular/           # Main video collection
+├── seasonal/
+│   ├── holidays/      # Holiday-themed content
+│   ├── workday/       # Business hours content
+│   ├── weekend/       # Weekend-specific content
+│   ├── morning/       # Morning motivation
+│   └── special_dates/ # Specific date content
+```
+
+#### Likelihood Guidelines
+- **0.001-0.01**: Very special, rare content (holidays, special dates)
+- **0.01-0.05**: Regular seasonal theming (work hours, weekends)
+- **0.05-0.2**: Strong seasonal presence without overwhelming
+- **0.2-1.0**: Dominant content during active periods (use sparingly)
+
+#### Performance Considerations
+- Keep seasonal directories reasonably sized (hundreds, not thousands of videos)
+- Very complex condition combinations are evaluated quickly but log heavily
+- Consider the frequency of condition checking when setting very specific minute/hour combinations
+
+#### Testing Your Configuration
+1. Use debug mode (`Q` key) to see current time evaluation
+2. Check logs for seasonal directory activation messages
+3. Temporarily increase likelihood values for testing
+4. Use date ranges to test specific scenarios
+
+### Troubleshooting
+
+#### Common Issues
+
+**Seasonal directory never activates**
+- Verify directory path exists and contains video files
+- Check that all conditions in the `conditions` object must match simultaneously
+- Confirm time zone alignment (server local time vs expected time)
+
+**Videos not appearing despite active conditions**
+- Check likelihood value - very low values may take many attempts
+- Verify video files in seasonal directory are in supported formats
+- Ensure no file permission issues
+
+**Unexpected activation times**
+- Remember hour ranges are exclusive of end hour (`[9, 17]` means 9:00-16:59)
+- Check for overnight ranges - `[22, 6]` includes late night hours
+- Verify day of week numbering (0=Sunday, 6=Saturday)
+
+**Performance issues**
+- Reduce complexity of condition objects
+- Consider consolidating very similar seasonal directories
+- Monitor log output for excessive evaluation messages
 
 ## Dependencies
 

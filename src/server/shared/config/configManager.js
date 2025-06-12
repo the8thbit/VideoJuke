@@ -164,6 +164,7 @@ class ConfigManager {
     calculateHash() {
         const relevantConfig = {
             directories: this.config.directories,
+            seasonalDirectories: this.config.seasonalDirectories, // Add this line
             video: {
                 updateInterval: this.config.video?.updateInterval
             }
