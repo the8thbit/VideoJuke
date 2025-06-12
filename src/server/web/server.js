@@ -56,7 +56,7 @@ class VideoPlayerWebServer {
             await this.configManager.load();
             
             const serverConfig = this.configManager.config.network?.server || {};
-            const port = serverConfig.port || 8080;
+            const port = serverConfig.port || 3123;
             const host = serverConfig.host || 'localhost';
             const autoOpenBrowser = serverConfig.autoOpenBrowser !== false; // Default to true
             

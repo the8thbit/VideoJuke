@@ -17,14 +17,35 @@ export default class ServerAPI {
     connectWebSocket() {
         try {
             const wsUrl = this.baseUrl.replace('http', 'ws');
-            this.logger.log(`Connecting to WebSocket: ${wsUrl}`);
+            this.logger.log(`=== WEBSOCKET CONNECTION ===`);
+            this.logger.log(`WebSocket URL: ${wsUrl}`);
+            this.logger.log(`Base URL: ${this.baseUrl}`);
+            
+            // Don't attempt WebSocket connection on WebOS TVs - they may not support it properly
+            if (typeof window !== 'undefined' && window.webOS) {
+                this.logger.log('WebOS detected - skipping WebSocket, using HTTP polling only');
+                this.connectionState = 'connected'; // Fake connected state for HTTP-only mode
+                this.updateConnectionStatus('connected');
+                return;
+            }
             
             this.ws = new WebSocket(wsUrl);
             this.connectionState = 'connecting';
             this.updateConnectionStatus('connecting');
             
+            // Reduced timeout for faster failure detection
+            const connectionTimeout = setTimeout(() => {
+                if (this.connectionState === 'connecting') {
+                    this.logger.log('WebSocket connection timeout, falling back to HTTP-only mode');
+                    this.ws.close();
+                    this.connectionState = 'connected'; // Use HTTP-only mode
+                    this.updateConnectionStatus('connected');
+                }
+            }, 3000); // 3 second timeout
+            
             this.ws.onopen = () => {
-                this.logger.log('WebSocket connected');
+                clearTimeout(connectionTimeout);
+                this.logger.log('WebSocket connected successfully');
                 this.connectionState = 'connected';
                 this.reconnectAttempts = 0;
                 this.updateConnectionStatus('connected');
@@ -40,23 +61,23 @@ export default class ServerAPI {
             };
             
             this.ws.onclose = () => {
-                this.logger.log('WebSocket disconnected');
-                this.connectionState = 'disconnected';
-                this.updateConnectionStatus('disconnected');
-                this.scheduleReconnect();
+                clearTimeout(connectionTimeout);
+                this.logger.log('WebSocket disconnected - continuing with HTTP-only mode');
+                this.connectionState = 'connected'; // Continue with HTTP-only
+                this.updateConnectionStatus('connected');
             };
             
             this.ws.onerror = (error) => {
-                this.logger.error('WebSocket error', error);
-                this.connectionState = 'disconnected';
-                this.updateConnectionStatus('disconnected');
+                clearTimeout(connectionTimeout);
+                this.logger.log('WebSocket error - falling back to HTTP-only mode');
+                this.connectionState = 'connected'; // Continue with HTTP-only
+                this.updateConnectionStatus('connected');
             };
             
         } catch (error) {
-            this.logger.error('Failed to create WebSocket connection', error);
-            this.connectionState = 'disconnected';
-            this.updateConnectionStatus('disconnected');
-            this.scheduleReconnect();
+            this.logger.log('WebSocket creation failed - using HTTP-only mode');
+            this.connectionState = 'connected'; // Use HTTP-only mode
+            this.updateConnectionStatus('connected');
         }
     }
     
@@ -120,22 +141,45 @@ export default class ServerAPI {
     async request(endpoint, options = {}) {
         try {
             const url = `${this.baseUrl}${endpoint}`;
+            this.logger.log(`HTTP Request: ${options.method || 'GET'} ${url}`);
+            
+            // Add timeout for requests
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            
             const response = await fetch(url, {
                 headers: {
                     'Content-Type': 'application/json',
                     ...options.headers
                 },
+                signal: controller.signal,
                 ...options
             });
             
+            clearTimeout(timeoutId);
+            
+            this.logger.log(`HTTP Response: ${response.status} ${response.statusText}`);
+            
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                const errorText = await response.text().catch(() => 'Unknown error');
+                throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
             }
             
-            return await response.json();
+            const result = await response.json();
+            this.logger.log(`Response data received (${JSON.stringify(result).length} chars)`);
+            return result;
+            
         } catch (error) {
-            this.logger.error(`Request failed: ${endpoint}`, error);
-            throw error;
+            if (error.name === 'AbortError') {
+                this.logger.error(`Request timeout: ${endpoint}`);
+                throw new Error(`Request timeout - server may be slow or unreachable`);
+            } else if (error.message.includes('Failed to fetch')) {
+                this.logger.error(`Network error: ${endpoint}`, error);
+                throw new Error(`Network error - cannot reach server at ${this.baseUrl}`);
+            } else {
+                this.logger.error(`Request failed: ${endpoint}`, error);
+                throw error;
+            }
         }
     }
     
@@ -152,8 +196,15 @@ export default class ServerAPI {
     
     // API methods that mirror the original electronAPI
     async getConfig() {
-        this.logger.log('Requesting configuration from server');
-        return this.get('/api/config');
+        this.logger.log('=== LOADING CONFIG FROM SERVER ===');
+        try {
+            const config = await this.get('/api/config');
+            this.logger.log('Config loaded successfully:', Object.keys(config));
+            return config;
+        } catch (error) {
+            this.logger.error('Failed to load config from server', error);
+            throw new Error(`Cannot load configuration: ${error.message}`);
+        }
     }
     
     async getNextVideo() {

@@ -26,7 +26,7 @@ class VideoPlayerClientLauncher {
             await this.configManager.load();
             
             const clientConfig = this.configManager.config.network?.client || {};
-            const serverUrl = clientConfig.serverUrl || 'http://localhost:8080';
+            const serverUrl = clientConfig.serverUrl || 'http://localhost:3123';
             
             this.logger.log(`Configured to connect to server: ${serverUrl}`);
             
@@ -49,7 +49,7 @@ class VideoPlayerClientLauncher {
             
             // Fallback: just show the URL
             this.logger.log('Attempting fallback...');
-            const serverUrl = 'http://localhost:8080';
+            const serverUrl = 'http://localhost:3123';
             this.logger.log(`Please manually open: ${serverUrl}`);
             
             setTimeout(() => {

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VideoJuke for WebOS</title>
+    <script src="webOSTVjs-1.2.12/webOSTV.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #000;
+            color: white;
+            font-family: 'LG Smart UI', Arial, sans-serif;
+            overflow: hidden;
+            width: 1920px;
+            height: 1080px;
+        }
+        
+        /* Server Configuration Screen */
+        .config-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+        }
+        
+        .config-screen.hidden {
+            display: none;
+        }
+        
+        .config-container {
+            background: rgba(0, 0, 0, 0.8);
+            padding: 60px;
+            border-radius: 20px;
+            border: 2px solid #3b82f6;
+            max-width: 800px;
+            width: 90%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .config-title {
+            font-size: 48px;
+            margin-bottom: 40px;
+            text-align: center;
+            color: #3b82f6;
+        }
+        
+        .config-form {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .form-label {
+            font-size: 28px;
+            color: #ccc;
+        }
+        
+        .form-input {
+            background: rgba(255, 255, 255, 0.1);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            font-size: 32px;
+            padding: 20px;
+            border-radius: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        .form-input.focused {
+            border-color: #3b82f6;
+            background: rgba(59, 130, 246, 0.1);
+            transform: scale(1.02);
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+        }
+        
+        .form-button {
+            background: #3b82f6;
+            color: white;
+            font-size: 32px;
+            padding: 25px;
+            border: none;
+            border-radius: 10px;
+            margin-top: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .form-button.focused {
+            background: #2563eb;
+            transform: scale(1.05);
+            box-shadow: 0 0 20px rgba(37, 99, 235, 0.5);
+        }
+        
+        .config-help {
+            text-align: center;
+            color: #888;
+            font-size: 24px;
+            margin-top: 30px;
+        }
+        
+        /* Video Player (reusing existing styles) */
+        .video-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: black;
+        }
+        
+        .video-player {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            opacity: 0;
+        }
+        
+        .video-player.visible {
+            opacity: 1;
+        }
+        
+        /* Loading Screen */
+        .loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+        }
+        
+        .loading-screen.hidden {
+            display: none;
+        }
+        
+        .loading-content {
+            text-align: center;
+            color: white;
+        }
+        
+        .loading-spinner {
+            width: 80px;
+            height: 80px;
+            border: 6px solid rgba(255, 255, 255, 0.1);
+            border-top: 6px solid #ffffff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 40px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loading-subtitle {
+            color: #cccccc;
+            font-size: 28px;
+            margin-bottom: 30px;
+            min-height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .progress-bar {
+            width: 600px;
+            height: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            overflow: hidden;
+            margin: 20px auto;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: #3b82f6;
+            border-radius: 6px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+        
+        /* Overlays */
+        .overlay {
+            position: fixed;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 20px 30px;
+            border-radius: 15px;
+            font-size: 24px;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+            z-index: 15;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            pointer-events: none;
+            max-width: 80vw;
+            word-wrap: break-word;
+        }
+        
+        .overlay.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .info-overlay {
+            bottom: 50px;
+            left: 50px;
+            max-width: 800px;
+            font-size: 28px;
+        }
+        
+        .error-overlay {
+            top: 50px;
+            right: 50px;
+            background: rgba(220, 53, 69, 0.95);
+            z-index: 1001 !important;
+        }
+        
+        .status-indicator {
+            top: 50px;
+            right: 50px;
+            font-size: 48px;
+            text-align: center;
+            background: transparent;
+            border: none;
+            padding: 10px;
+        }
+        
+        /* Remote Control Help */
+        .controls-overlay {
+            position: fixed;
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.95);
+            padding: 30px 50px;
+            border-radius: 15px;
+            border: 2px solid #3b82f6;
+            font-size: 20px;
+            display: none;
+            max-width: 1200px;
+        }
+        
+        .controls-overlay.visible {
+            display: block;
+        }
+        
+        .controls-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+        
+        .control-item {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .control-button {
+            background: #333;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: bold;
+            min-width: 100px;
+            text-align: center;
+        }
+        
+        .control-button.color-red { background: #dc3545; }
+        .control-button.color-green { background: #28a745; }
+        .control-button.color-yellow { background: #ffc107; color: #000; }
+        .control-button.color-blue { background: #007bff; }
+
+        #configError {
+            color: #dc3545 !important;
+            background: rgba(220, 53, 69, 0.1) !important;
+            border: 2px solid #dc3545 !important;
+            padding: 20px !important;
+            border-radius: 10px !important;
+            margin-top: 20px !important;
+            font-size: 24px !important;
+            text-align: center !important;
+            display: none;
+            z-index: 1000;
+            animation: errorFadeIn 0.3s ease-out;
+        }
+
+        @keyframes errorFadeIn {
+            from { 
+                opacity: 0; 
+                transform: translateY(-20px); 
+            }
+            to { 
+                opacity: 1; 
+                transform: translateY(0); 
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Server Configuration Screen -->
+    <div id="configScreen" class="config-screen">
+        <div class="config-container">
+            <h1 class="config-title">VideoJuke Server Configuration</h1>
+            <form id="configForm" class="config-form">
+                <div class="form-group">
+                    <label class="form-label">Server Host</label>
+                    <input type="text" id="serverHost" class="form-input" placeholder="192.168.1.100" />
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Server Port</label>
+                    <input type="number" id="serverPort" class="form-input" placeholder="3123" />
+                </div>
+                <button type="submit" id="connectButton" class="form-button">Connect</button>
+            </form>
+            <div class="config-help">
+                Use arrow keys to navigate, OK to select
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="loading-screen hidden">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <div class="loading-subtitle">Connecting to VideoJuke server...</div>
+            <div class="progress-bar">
+                <div id="loadingProgress" class="progress-fill"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Video Container -->
+    <div class="video-container">
+        <video id="video1" class="video-player" playsinline></video>
+        <video id="video2" class="video-player" playsinline></video>
+    </div>
+
+    <!-- Overlays -->
+    <div id="infoOverlay" class="overlay info-overlay">
+        <div id="videoTitle"></div>
+        <div id="videoDetails"></div>
+    </div>
+
+    <div id="errorOverlay" class="overlay error-overlay">
+        <div id="errorMessage"></div>
+    </div>
+
+    <div id="statusIndicator" class="overlay status-indicator">
+        <div id="statusIcon"></div>
+    </div>
+
+    <!-- Remote Control Help -->
+    <div id="controlsOverlay" class="controls-overlay">
+        <h3 style="text-align: center; margin-bottom: 20px; color: #3b82f6;">Remote Control Guide</h3>
+        <div class="controls-grid">
+            <div class="control-item">
+                <span class="control-button">OK</span>
+                <span>Play/Pause</span>
+            </div>
+            <div class="control-item">
+                <span class="control-button">→</span>
+                <span>Next Video</span>
+            </div>
+            <div class="control-item">
+                <span class="control-button">←</span>
+                <span>Previous Video</span>
+            </div>
+            <div class="control-item">
+                <span class="control-button">↑/↓</span>
+                <span>Speed Control</span>
+            </div>
+            <div class="control-item">
+                <span class="control-button color-red">RED</span>
+                <span>Toggle Crossfade</span>
+            </div>
+            <div class="control-item">
+                <span class="control-button color-green">GREEN</span>
+                <span>Toggle Blur</span>
+            </div>
+            <div class="control-item">
+                <span class="control-button color-yellow">YELLOW</span>
+                <span>Show Info</span>
+            </div>
+            <div class="control-item">
+                <span class="control-button color-blue">BLUE</span>
+                <span>Settings</span>
+            </div>
+            <div class="control-item">
+                <span class="control-button">BACK</span>
+                <span>Exit/Menu</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="webOSTVjs-1.2.4/webOSTV.js"></script>
+    
+    <!-- Shared modules (loaded in dependency order) -->
+    <script src="shared/utils/logger.js"></script>
+    <script src="shared/utils/formatter.js"></script>
+    <script src="shared/ui/loadingScreen.js"></script>
+    <script src="shared/ui/overlays.js"></script>
+    <script src="shared/player/blur.js"></script>
+    <script src="shared/player/crossfade.js"></script>
+    <script src="shared/player/videoPlayer.js"></script>
+    <script src="shared/queue/playbackQueue.js"></script>
+    
+    <!-- WebOS specific modules -->
+    <script src="web/serverAPI.js"></script>
+    <script src="storage.js"></script>
+    <script src="remoteControl.js"></script>
+    
+    <!-- Main client -->
+    <script src="client.js"></script>
+</body>
+</html>

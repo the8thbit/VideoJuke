@@ -6,12 +6,13 @@
   "author": "",
   "license": "AGPL-3.0-or-later",
   "scripts": {
-    "start": "npm run electron",
-    "electron": "electron src/server/electron/main.js",
-    "web": "node src/server/web/server.js",
-    "dev:electron": "electron src/server/electron/main.js --dev",
-    "dev:web": "nodemon src/server/web/server.js",
-    "build": "electron-builder"
+      "start": "npm run electron",
+      "electron": "electron src/server/electron/main.js",
+      "web": "node src/server/web/server.js",
+      "dev:electron": "electron src/server/electron/main.js --dev",
+      "dev:web": "nodemon src/server/web/server.js",
+      "build": "electron-builder",
+      "package:webos": "node scripts/run-package-webos.js"
   },
   "devDependencies": {
     "electron-builder": "^26.0.12",

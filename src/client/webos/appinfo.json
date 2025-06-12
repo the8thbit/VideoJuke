@@ -1,0 +1,17 @@
+{
+  "id": "com.videojuke.player",
+  "version": "1.0.0",
+  "vendor": "VideoJuke",
+  "type": "web",
+  "main": "index.html",
+  "title": "VideoJuke",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "appDescription": "Random video player for LG WebOS TVs",
+  "resolution": "1920x1080",
+  "bgColor": "#000000",
+  "iconColor": "#3b82f6",
+  "disableBackHistoryAPI": true,
+  "handlesRelaunch": true,
+  "supportQuickStart": true
+}

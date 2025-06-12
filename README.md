@@ -43,7 +43,7 @@ npm install
 # Start web server
 npm run web
 
-# Open browser to http://localhost:8080
+# Open browser to http://localhost:3123
 ```
 
 ### Development Mode
@@ -77,7 +77,7 @@ npm run dev:web
      "network": {
        "server": {
          "enabled": true,
-         "port": 8080,
+         "port": 3123,
          "host": "localhost"
        }
      }
@@ -179,7 +179,7 @@ videojuke/
   "network": {
     "server": {
       "enabled": true,
-      "port": 8080,
+      "port": 3123,
       "host": "0.0.0.0"
     }
   },
@@ -688,10 +688,6 @@ NODE_ENV=production npm run web
 # Process manager (recommended)
 pm2 start src/server/web/server.js --name videojuke-server
 ```
-
-### Docker (Future Enhancement)
-Container support planned for simplified deployment and scaling.
-
 ## Browser Compatibility (Web Mode)
 
 ### Required Features
@@ -708,6 +704,158 @@ Container support planned for simplified deployment and scaling.
 
 ### Mobile Support
 Basic mobile browser support available, though optimized for desktop use.
+
+# WebOS Build System
+
+## Overview
+
+The VideoJuke WebOS build system converts modern ES6 JavaScript modules into WebOS-compatible global scripts. This system has been enhanced to handle complex module dependencies and ensure compatibility with WebOS TV platforms.
+
+## Recent Improvements
+
+### Fixed Critical Issues
+
+1. **Module Import Error**: Fixed missing `vm` module import that was causing "vm is not defined" errors during validation
+2. **ES6 Compatibility**: Added comprehensive ES6 to ES5 conversion for better WebOS compatibility:
+   - Template literals → String concatenation
+   - Arrow functions → Regular functions
+   - `const`/`let` → `var` declarations
+3. **Export Statement Removal**: Enhanced regex patterns to properly remove all ES6 export statements
+4. **Cross-dependency Resolution**: Improved handling of module dependencies between converted files
+5. **Enhanced Error Handling**: Added comprehensive error handling with detailed logging throughout the conversion process
+
+### Build Process Improvements
+
+1. **Structured Logging**: Implemented proper indentation and clear status messages for better debugging
+2. **Validation Enhancement**: Added thorough JavaScript syntax validation with compatibility warnings
+3. **HTML Script Loading**: Fixed WebOS HTML file to ensure proper script loading order
+4. **Robust File Operations**: Added better file existence checks and directory creation
+5. **ES5 Conversion**: Added automatic conversion of modern JavaScript features to ES5 for maximum compatibility
+
+## Build Commands
+
+```bash
+# Build WebOS app
+npm run package:webos
+
+# Platform-specific builds
+scripts/package-webos.bat    # Windows
+scripts/package-webos.sh     # Linux/macOS
+```
+
+## Build Process
+
+1. **File Preparation**: Copies WebOS app files and assets
+2. **Module Conversion**: Converts ES6 modules to global window objects
+3. **ES6 to ES5 Translation**: Converts modern JavaScript to ES5 for compatibility
+4. **Dependency Resolution**: Fixes cross-references between modules
+5. **Validation**: Performs syntax and compatibility validation
+6. **HTML Generation**: Updates HTML with proper script loading order
+7. **Packaging**: Creates IPK package using `ares-package`
+
+## Module Conversion Process
+
+### Input (ES6 Module)
+```javascript
+import Logger from '../utils/logger.js';
+export default class VideoPlayer {
+    constructor() {
+        this.logger = new Logger();
+    }
+}
+```
+
+### Output (WebOS Compatible)
+```javascript
+(function() {
+    'use strict';
+    
+    var VideoPlayer = function VideoPlayer() {
+        this.logger = new window.Logger();
+    };
+    
+    try {
+        if (typeof VideoPlayer !== 'undefined') {
+            window.VideoPlayer = VideoPlayer;
+            console.log('✅ Loaded VideoPlayer module');
+        } else {
+            console.error('❌ Failed to export VideoPlayer');
+        }
+    } catch (error) {
+        console.error('❌ Error exporting VideoPlayer:', error);
+    }
+})();
+```
+
+## File Structure
+
+```
+build/webos/package/
+├── client.js                    # Main application entry point
+├── shared/
+│   ├── utils/
+│   │   ├── logger.js           # Logging utility
+│   │   └── formatter.js        # Data formatting functions
+│   ├── ui/
+│   │   ├── loadingScreen.js    # Loading screen component
+│   │   └── overlays.js         # Video overlay components
+│   ├── player/
+│   │   ├── blur.js            # Blur effect handler
+│   │   ├── crossfade.js       # Crossfade transition handler
+│   │   └── videoPlayer.js     # Main video player
+│   └── queue/
+│       └── playbackQueue.js   # Playback queue management
+├── web/
+│   └── serverAPI.js           # Server communication API
+├── storage.js                 # WebOS storage wrapper
+├── remoteControl.js          # WebOS remote control handler
+└── webOSTVjs-1.2.12/        # WebOS TV SDK library
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Syntax Errors**: The build process now includes comprehensive validation and will report specific syntax issues
+2. **Module Dependencies**: Cross-dependencies are automatically resolved during the build process
+3. **ES6 Compatibility**: Modern JavaScript features are automatically converted to ES5
+4. **Missing Files**: The build process will report missing source files with clear error messages
+
+### Debugging
+
+- Build logs include detailed conversion information with file sizes and transformation details
+- Validation errors are reported with specific line numbers and issue descriptions
+- The build process creates debug information in `build/webos/package/debug/` when errors occur
+
+## Requirements
+
+- Node.js 14+ for the build process
+- WebOS SDK for packaging (`ares-package` command)
+- Source files must be present in the expected directory structure
+
+## WebOS SDK Installation
+
+1. Download the WebOS SDK from: https://webostv.developer.lge.com/sdk/installation/
+2. Install the SDK following the official documentation
+3. Ensure `ares-package` is available in your PATH
+
+## Installation Commands
+
+```bash
+# Install on WebOS TV
+ares-setup-device           # Configure TV connection
+ares-install package.ipk    # Install the generated package
+ares-launch com.videojuke.player  # Launch the application
+```
+
+## Architecture Notes
+
+The WebOS build system maintains a clear separation between:
+- **Shared modules**: Platform-independent business logic
+- **WebOS-specific modules**: Platform-specific implementations (storage, remote control)
+- **Client code**: Main application entry point that orchestrates all modules
+
+This architecture ensures that the core application logic remains platform-agnostic while providing WebOS-specific implementations where needed.
 
 ## Troubleshooting
 

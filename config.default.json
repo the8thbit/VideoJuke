@@ -16,12 +16,12 @@
   "network": {
     "server": {
       "enabled": true,
-      "port": 8080,
+      "port": 3123,
       "host": "localhost",
       "autoOpenBrowser": true
     },
     "client": {
-      "serverUrl": "http://localhost:8080"
+      "serverUrl": "http://localhost:3123"
     }
   },
   "video": {
