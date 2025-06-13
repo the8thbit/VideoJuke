@@ -102,15 +102,26 @@ export default class ServerAPI {
             switch (status) {
                 case 'connected':
                     statusElement.textContent = 'Connected';
+                    // Hide connection indicator when connected and not on loading screen
+                    if (!this.isLoadingScreenVisible()) {
+                        statusElement.classList.add('hidden');
+                        this.logger.log('Connection indicator hidden - connected and not on loading screen');
+                    } else {
+                        statusElement.classList.remove('hidden');
+                        this.logger.log('Connection indicator shown - on loading screen');
+                    }
                     break;
                 case 'connecting':
                     statusElement.textContent = 'Connecting...';
+                    statusElement.classList.remove('hidden');
                     break;
                 case 'disconnected':
                     statusElement.textContent = 'Disconnected';
+                    statusElement.classList.remove('hidden');
                     break;
                 case 'failed':
                     statusElement.textContent = 'Connection failed';
+                    statusElement.classList.remove('hidden');
                     break;
             }
         }
@@ -120,6 +131,32 @@ export default class ServerAPI {
         if (debugConnection) {
             debugConnection.textContent = `${status} (attempts: ${this.reconnectAttempts})`;
         }
+    }
+
+    isLoadingScreenVisible() {
+        const loadingScreen = document.getElementById('loadingScreen');
+        if (!loadingScreen) {
+            this.logger.log('Loading screen element not found, assuming not visible');
+            return false;
+        }
+        
+        // Check if loading screen is hidden via class or style
+        const isHiddenByClass = loadingScreen.classList.contains('hidden');
+        const isHiddenByStyle = loadingScreen.style.display === 'none';
+        const computedStyle = window.getComputedStyle(loadingScreen);
+        const isHiddenByComputed = computedStyle.display === 'none' || 
+                                computedStyle.visibility === 'hidden' || 
+                                computedStyle.opacity === '0';
+        
+        const isVisible = !isHiddenByClass && !isHiddenByStyle && !isHiddenByComputed;
+        
+        this.logger.log(`Loading screen visibility check: 
+            hiddenByClass=${isHiddenByClass}, 
+            hiddenByStyle=${isHiddenByStyle}, 
+            hiddenByComputed=${isHiddenByComputed}, 
+            isVisible=${isVisible}`);
+        
+        return isVisible;
     }
     
     handleMessage(message) {
