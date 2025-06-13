@@ -2,6 +2,7 @@ import Logger from '../shared/utils/logger.js';
 import LoadingScreen from '../shared/ui/loadingScreen.js';
 import VideoPlayer from '../shared/player/videoPlayer.js';
 import PlaybackQueue from '../shared/queue/playbackQueue.js';
+import OverlayAnchorManager from '../shared/ui/overlayAnchorManager.js';
 import Overlays from '../shared/ui/overlays.js';
 import Controls from '../shared/ui/controls.js';
 import ServerAPI from './serverAPI.js';
@@ -10,6 +11,7 @@ class VideoPlayerWebClient {
     constructor() {
         this.logger = new Logger('WEB-CLIENT');
         this.loadingScreen = new LoadingScreen(this.logger);
+        this.overlayAnchorManager = new OverlayAnchorManager(this.logger);
         this.serverAPI = null;
         this.videoPlayer = null;
         this.playbackQueue = null;
@@ -666,6 +668,7 @@ class VideoPlayerWebClient {
         // Cleanup on unload
         window.addEventListener('beforeunload', () => {
             this.isPlaybackActive = false;
+            this.overlayAnchorManager.cleanup();
             this.videoPlayer?.cleanup();
             this.playbackQueue?.cleanup();
             this.controls?.cleanup();
