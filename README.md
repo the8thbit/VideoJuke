@@ -249,6 +249,257 @@ All videos are preprocessed with:
 - MP4 container optimization
 - Fast-start encoding for web streaming
 
+## Audio Processing & 5.1 Surround Sound
+
+VideoJuke includes sophisticated audio processing capabilities with full 5.1 surround sound support, automatically converting stereo content and preserving multichannel audio.
+
+### Audio Features
+
+**5.1 Surround Output**: All videos are processed to 5.1 surround sound with intelligent channel mapping
+**Stereo Upmixing**: Stereo content is intelligently converted to 5.1 with configurable rear channel levels
+**Multichannel Preservation**: True 5.1/7.1 content maintains original channel layout and quality
+**Smart Normalization**: Audio levels are normalized while preserving multichannel dynamics
+**Configurable Processing**: Extensive configuration options for fine-tuning audio behavior
+
+### Stereo to 5.1 Conversion
+
+For 2-channel (stereo) content, VideoJuke creates a full 5.1 mix:
+
+- **Front Channels**: Original left/right channels preserved
+- **Center Channel**: Balanced mix of left/right at configurable level (default 50%)
+- **Rear Channels**: Front channels duplicated at reduced level (default 20%)
+- **LFE (Subwoofer)**: Mixed content from front channels (default 30%, bass frequencies naturally present)
+
+### Audio Configuration
+
+```json
+{
+  "audio": {
+    "enabled51Processing": true,
+    "forceOutputChannels": 6,
+    "outputChannelLayout": "5.1",
+    "stereoUpmixing": {
+      "enabled": true,
+      "rearChannelLevel": 0.2,
+      "centerChannelLevel": 0.5,
+      "lfeChannelLevel": 0.3
+    },
+    "normalization": {
+      "enabled": true,
+      "strength": "medium",
+      "targetLUFS": -16,
+      "truePeak": -1.5,
+      "LRA": 11,
+      "dualMono": true,
+      "presets": {
+        "light": {
+          "targetLUFS": -12,
+          "truePeak": -1.0,
+          "LRA": 15
+        },
+        "medium": {
+          "targetLUFS": -16,
+          "truePeak": -1.5,
+          "LRA": 11
+        },
+        "strong": {
+          "targetLUFS": -20,
+          "truePeak": -2.0,
+          "LRA": 8
+        },
+        "broadcast": {
+          "targetLUFS": -23,
+          "truePeak": -1.0,
+          "LRA": 7
+        }
+      }
+    },
+    "codecPreferences": {
+      "multichannel": "ac3",
+      "stereo": "aac",
+      "multichannelBitrate": 640000,
+      "stereoBitrate": 256000
+    },
+    "compatibility": {
+      "preserveOriginalIfMultichannel": true,
+      "fallbackToStereo": false,
+      "volumeAdjustmentFor51": 0.9
+    }
+  }
+}
+```
+
+### Audio Processing Options
+
+**Normalization Strength Presets**:
+- `"light"`: Minimal normalization, preserves original dynamics (-12 LUFS)
+- `"medium"`: Balanced normalization for streaming (-16 LUFS) **[Default]**
+- `"strong"`: Aggressive normalization for consistent volume (-20 LUFS)
+- `"broadcast"`: Professional broadcast standard (-23 LUFS, EBU R128)
+
+**Manual Normalization Settings**:
+- `targetLUFS`: Target loudness level (more negative = more aggressive)
+- `truePeak`: Maximum peak level (prevents clipping and distortion)
+- `LRA`: Loudness range for dynamic content (lower = more compressed)
+- `dualMono`: Enhanced processing for dual-mono content
+- `enabled`: Set to `false` to disable all normalization
+
+**Stereo Upmixing Levels**:
+- `rearChannelLevel`: Volume of duplicated rear channels (0.0-1.0)
+- `centerChannelLevel`: Center channel mix level (0.0-1.0)
+- `lfeChannelLevel`: Subwoofer channel level (0.0-1.0)
+
+### Normalization Control
+
+VideoJuke offers flexible audio normalization control through both simple presets and detailed manual configuration:
+
+#### Quick Setup (Recommended)
+Simply set the `strength` parameter to control normalization intensity:
+
+```json
+{
+  "audio": {
+    "normalization": {
+      "enabled": true,
+      "strength": "medium"
+    }
+  }
+}
+```
+
+#### Advanced Manual Control
+Override specific parameters for fine-tuned control:
+
+```json
+{
+  "audio": {
+    "normalization": {
+      "enabled": true,
+      "strength": "medium",
+      "targetLUFS": -14,
+      "truePeak": -1.0
+    }
+  }
+}
+```
+
+**Manual settings override preset values**, allowing you to start with a preset and adjust specific parameters.
+
+#### When to Use Each Preset
+
+**Light Normalization** (`"light"`):
+- Source material has consistent volume levels
+- Preserving original audio dynamics is priority
+- High-quality recordings that don't need much adjustment
+- Classical music, audiophile content
+
+**Medium Normalization** (`"medium"`) **[Default]**:
+- Mixed content from various sources
+- General streaming and playback use
+- Balanced approach between consistency and dynamics
+- Most home entertainment scenarios
+
+**Strong Normalization** (`"strong"`):
+- Content with widely varying volume levels
+- Background listening scenarios
+- Mixed media libraries with inconsistent mastering
+- Noisy environments requiring consistent volume
+
+**Broadcast Standard** (`"broadcast"`):
+- Professional broadcast compliance
+- Maximum consistency across all content
+- Commercial/professional installations
+- Hearing accessibility requirements
+
+#### Disabling Normalization
+
+Set `"enabled": false` to disable all normalization and preserve original audio levels:
+
+```json
+{
+  "audio": {
+    "normalization": {
+      "enabled": false
+    }
+  }
+}
+```
+
+This bypasses all loudness processing while maintaining 5.1 upmixing and other audio enhancements.
+
+### Compatibility & Legacy Support
+
+**5.1 Processing Toggle**: Set `enabled51Processing: false` to disable 5.1 processing entirely
+**Preserve Original**: `preserveOriginalIfMultichannel: true` maintains original multichannel audio
+**Fallback Options**: Automatic fallback to stereo if 5.1 processing fails
+**Volume Adjustment**: Automatic volume reduction for 5.1 content to prevent clipping
+
+### Platform-Specific Audio Support
+
+**Electron (Desktop)**: Full 5.1 support with hardware audio device detection
+**Web Browser**: 5.1 support depends on browser and audio system capabilities
+**WebOS TV**: Enhanced support with Dolby Atmos detection and ARC compatibility
+
+### Audio Processing Pipeline
+
+1. **Source Analysis**: FFprobe extracts detailed audio metadata (channels, layout, codec)
+2. **Channel Mapping**: Intelligent routing based on source channel configuration
+3. **Normalization**: EBU R128 loudness normalization with multichannel awareness
+4. **Upmixing/Processing**: Stereo-to-5.1 conversion or multichannel preservation
+5. **Encoding**: High-quality AC-3 or AAC encoding with optimized bitrates
+6. **Metadata**: Processing details logged for debugging and quality assurance
+
+### Audio Quality Settings
+
+**High Quality** (Default):
+- AC-3 640kbps for 5.1 content
+- AAC 256kbps for stereo content
+- Full dynamic range preservation
+
+**Balanced Quality**:
+- Reduce bitrates by 25% for smaller files
+- Maintain surround separation
+
+**Compatibility Mode**:
+- AAC for all content
+- Reduced processing complexity
+- Maximum device compatibility
+
+### Troubleshooting Audio Issues
+
+**No audio output**: Check system audio device supports multichannel
+**Distorted audio**: Reduce volume levels in configuration
+**Missing rear channels**: Verify audio system configuration and speaker setup
+**Compatibility issues**: Try disabling 5.1 processing for problem files
+
+### Advanced Audio Features
+
+**Dynamic Range Compression**: Optional for late-night viewing
+**Channel Mapping**: Custom channel assignments for unusual speaker setups
+**Spatial Audio**: Enhanced positioning for immersive audio systems
+**Real-time Processing**: Live audio adjustments during playback
+
+The audio processing system is designed to provide the best possible surround sound experience while maintaining compatibility across different playback environments.
+
+## Supported Video Formats
+
+**Primary**: MP4, AVI, MOV, WMV, FLV, WebM, MKV  
+**Additional**: M4V, 3GP, MPEG, MPG, TS, MTS, M2TS
+
+All videos are preprocessed with:
+- **5.1 Surround Sound Processing**: Intelligent upmixing and multichannel preservation
+- **Audio Normalization**: EBU R128 loudness normalization with multichannel support
+- **Video Optimization**: MP4 container with fast-start encoding for web streaming
+- **Metadata Enhancement**: Detailed audio and video analysis for optimal processing
+
+### Audio Format Support
+
+**Input Formats**: Any format supported by FFmpeg (AAC, MP3, AC-3, DTS, FLAC, PCM, etc.)
+**Output Formats**: 
+- AC-3 5.1 (640kbps) for multichannel content
+- AAC stereo (256kbps) for fallback compatibility
+**Channel Layouts**: Mono, Stereo, 2.1, 4.0, 5.0, 5.1, 7.1 (all converted to 5.1 output)
+
 ## Seasonal Directories
 
 VideoJuke supports "seasonal directories" that are conditionally active based on time/date conditions with configurable probability. This powerful feature allows you to create special video collections that only appear during specific times, dates, or conditions.

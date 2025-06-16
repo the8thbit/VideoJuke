@@ -22,7 +22,7 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            background: "black";
+            background: #000;
         }
         .video-player {
             position: absolute;
@@ -90,6 +90,22 @@
             border-radius: 4px;
             transition: width 0.3s ease;
             width: 0%;
+        }
+        .overlay-anchor {
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 2px;
+            height: 2px;
+            background: rgba(1, 1, 1, 0.05);
+            z-index: 9;
+            opacity: 0;
+            border-radius: 100%;
+            pointer-events: none;
+        }
+        .overlay-anchor.active {
+            opacity: 1;
         }
         .overlay {
             position: fixed;
