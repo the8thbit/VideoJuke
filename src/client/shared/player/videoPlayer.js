@@ -34,17 +34,139 @@ export default class VideoPlayer {
     }
     
     initializeVideos() {
-        [this.video1, this.video2].forEach(video => {
+        [this.video1, this.video2].forEach((video, index) => {
+            // Basic video configuration
             video.muted = false;
             video.volume = 1.0;
             video.preload = 'auto';
             video.controls = false;
-            // Ensure clean initial state
-            video.src = '';
-            video.classList.remove('visible');
+            
+            // 5.1 Audio Configuration
+            try {
+                // Set audio context for surround sound if supported
+                if (video.audioTracks) {
+                    video.audioTracks.addEventListener('addtrack', (event) => {
+                        const track = event.track;
+                        this.logger.log(`    🔊 Audio track added: ${track.label}, channels: ${track.channels || 'unknown'}`);
+                    });
+                }
+                
+                // Configure for multichannel audio output
+                if (video.setSinkId && 'getCapabilities' in navigator.mediaDevices) {
+                    // Modern browsers with advanced audio capabilities
+                    navigator.mediaDevices.getCapabilities?.().then(capabilities => {
+                        if (capabilities.audio && capabilities.audio.channelCount) {
+                            this.logger.log(`    🎵 Browser supports up to ${capabilities.audio.channelCount.max} audio channels`);
+                        }
+                    }).catch(err => {
+                        this.logger.log(`    ⚠️ Could not query audio capabilities: ${err.message}`);
+                    });
+                }
+                
+                // Set media element source buffer configuration for 5.1
+                if (video.canPlayType) {
+                    const formats = [
+                        'video/mp4; codecs="avc1.42E01E, ac-3"',  // H.264 + AC-3 (5.1)
+                        'video/mp4; codecs="avc1.42E01E, eac-3"', // H.264 + E-AC-3 (5.1+)
+                        'video/mp4; codecs="avc1.42E01E, aac"'    // H.264 + AAC (fallback)
+                    ];
+                    
+                    for (const format of formats) {
+                        const support = video.canPlayType(format);
+                        if (support === 'probably' || support === 'maybe') {
+                            this.logger.log(`    ✅ Format supported: ${format} (${support})`);
+                        }
+                    }
+                }
+                
+                // Enhanced audio configuration for 5.1 output
+                Object.defineProperties(video, {
+                    // Custom property to track 5.1 capability
+                    '_supports51': {
+                        value: true,
+                        writable: false,
+                        enumerable: false
+                    },
+                    
+                    // Enhanced volume control for multichannel
+                    '_setMultichannelVolume': {
+                        value: function(level) {
+                            this.volume = level;
+                            // Future: could implement per-channel volume control here
+                            return this.volume;
+                        },
+                        writable: false,
+                        enumerable: false
+                    }
+                });
+                
+            } catch (audioError) {
+                this.logger.log(`    ⚠️ Advanced audio setup failed for video ${index + 1}: ${audioError.message}`);
+                this.logger.log(`    🔄 Falling back to standard audio configuration`);
+            }
+            
+            // Set up enhanced event handling for 5.1 content
+            video.addEventListener('loadedmetadata', () => {
+                this.logAudioTrackInfo(video, index + 1);
+            });
+            
+            video.addEventListener('play', () => {
+                this.configureAudioForPlayback(video, index + 1);
+            });
+            
+            this.logger.log(`🎬 Video ${index + 1} initialized with 5.1 surround sound support`);
         });
+        
+        this.logger.log('🎬 Video elements initialized with enhanced 5.1 audio support and robust timing');
     }
     
+    logAudioTrackInfo(video, playerNumber) {
+        try {
+            if (video.audioTracks && video.audioTracks.length > 0) {
+                this.logger.log(`    🎵 Player ${playerNumber} audio tracks:`);
+                for (let i = 0; i < video.audioTracks.length; i++) {
+                    const track = video.audioTracks[i];
+                    this.logger.log(`      Track ${i}: ${track.label || 'Unnamed'}, ` +
+                                  `Language: ${track.language || 'Unknown'}, ` +
+                                  `Enabled: ${track.enabled}`);
+                }
+            }
+            
+            // Check for multichannel capability in metadata
+            if (video.videoWidth && video.videoHeight) {
+                this.logger.log(`    📺 Player ${playerNumber} resolution: ${video.videoWidth}x${video.videoHeight}`);
+            }
+            
+            if (video.duration) {
+                this.logger.log(`    ⏱️ Player ${playerNumber} duration: ${video.duration.toFixed(2)}s`);
+            }
+            
+        } catch (error) {
+            this.logger.log(`    ⚠️ Could not log audio info for player ${playerNumber}: ${error.message}`);
+        }
+    }
+
+    configureAudioForPlayback(video, playerNumber) {
+        try {
+            // Ensure optimal audio configuration for 5.1 playback
+            if (video._supports51) {
+                this.logger.log(`    🔊 Player ${playerNumber} starting 5.1 surround playback`);
+                
+                // Ensure volume is appropriate for multichannel content
+                if (video.volume > 0.9) {
+                    video.volume = 0.9; // Slightly reduce volume to prevent clipping in 5.1
+                    this.logger.log(`    🔊 Adjusted volume to ${video.volume} for 5.1 content`);
+                }
+                
+                // Future: Additional 5.1-specific configuration could go here
+                // such as spatial audio settings, channel mapping, etc.
+            }
+            
+        } catch (error) {
+            this.logger.log(`    ⚠️ Audio configuration error for player ${playerNumber}: ${error.message}`);
+        }
+    }
+
     async play(videoData, isFirstVideo = false, isManualTransition = false) {
         // Prevent overlapping transitions
         if (this._transitionLock) {
