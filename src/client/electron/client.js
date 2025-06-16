@@ -2,6 +2,7 @@ import Logger from '../shared/utils/logger.js';
 import LoadingScreen from '../shared/ui/loadingScreen.js';
 import VideoPlayer from '../shared/player/videoPlayer.js';
 import PlaybackQueue from '../shared/queue/playbackQueue.js';
+import OverlayAnchorManager from '../shared/ui/overlayAnchorManager.js';
 import Overlays from '../shared/ui/overlays.js';
 import Controls from '../shared/ui/controls.js';
 
@@ -9,6 +10,7 @@ class VideoPlayerClient {
     constructor() {
         this.logger = new Logger('ELECTRON-CLIENT');
         this.loadingScreen = new LoadingScreen(this.logger);
+        this.overlayAnchorManager = new OverlayAnchorManager(this.logger);
         this.videoPlayer = null;
         this.playbackQueue = null;
         this.overlays = null;
