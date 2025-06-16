@@ -34,6 +34,66 @@
     "persistedHistorySize": 5000,
     "historySize": 50
   },
+  "audio": {
+    "enabled51Processing": true,
+    "forceOutputChannels": 6,
+    "outputChannelLayout": "5.1",
+    "stereoUpmixing": {
+      "enabled": true,
+      "rearChannelLevel": 0.2,
+      "centerChannelLevel": 0.5,
+      "lfeChannelLevel": 0.3
+    },
+    "normalization": {
+      "enabled": true,
+      "strength": "medium",
+      "targetLUFS": -16,
+      "truePeak": -1.5,
+      "LRA": 11,
+      "dualMono": true,
+      "presets": {
+        "light": {
+          "targetLUFS": -12,
+          "truePeak": -1.0,
+          "LRA": 15,
+          "_description": "Minimal normalization, preserves original dynamics"
+        },
+        "medium": {
+          "targetLUFS": -16,
+          "truePeak": -1.5,
+          "LRA": 11,
+          "_description": "Balanced normalization for streaming (default)"
+        },
+        "strong": {
+          "targetLUFS": -20,
+          "truePeak": -2.0,
+          "LRA": 8,
+          "_description": "Aggressive normalization for consistent volume"
+        },
+        "broadcast": {
+          "targetLUFS": -23,
+          "truePeak": -1.0,
+          "LRA": 7,
+          "_description": "Broadcast standard (EBU R128)"
+        }
+      }
+    },
+    "codecPreferences": {
+      "multichannel": "aac",
+      "stereo": "aac",
+      "multichannelBitrate": 384000,
+      "stereoBitrate": 256000
+    },
+    "compatibility": {
+      "preserveOriginalIfMultichannel": true,
+      "fallbackToStereo": true,
+      "volumeAdjustmentFor51": 0.9,
+      "debugMode": false,
+      "forceAAC": true,
+      "conservativeBitrates": true,
+      "compatibilityMode": "5.1"
+    }
+  },
   "timeouts": {
     "videoLoadTimeout": 10000,
     "videoTestTimeout": 5000,
