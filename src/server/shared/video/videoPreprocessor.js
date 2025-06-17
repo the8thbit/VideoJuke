@@ -68,7 +68,7 @@ class VideoPreprocessor {
         
         return config;
     }
-    
+
     /**
      * Creates appropriate audio filter chain based on source channel count and config
      * @param {number} channels - Number of input audio channels
@@ -263,6 +263,11 @@ class VideoPreprocessor {
         };
     }
     
+    /**
+     * Main preprocessing function with enhanced error handling for audio issues
+     * @param {Object} videoData - Video data object with originalPath and filename
+     * @returns {Promise<Object>} Processed video data with metadata
+     */
     async preprocess(videoData) {
         const videoId = crypto.randomUUID();
         const outputPath = path.join(this.tempDir, `processed_${videoId}.mp4`);
@@ -401,15 +406,23 @@ class VideoPreprocessor {
                             
                             reject(new Error(`FFmpeg processing failed: ${err.message}`));
                         })
-                        .on('end', () => {
+                        .on('end', async () => {
                             this.logger.log(`✅ Preprocessed: ${videoData.filename}`);
                             
                             // Verify output file exists and has reasonable size
-                            if (FileUtils.fileExists(outputPath)) {
+                            if (await FileUtils.exists(outputPath)) {
                                 const stats = require('fs').statSync(outputPath);
                                 if (stats.size > 1024) { // At least 1KB
                                     this.logger.log(`    📁 Output size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
-                                    resolve(videoWithMetadata);
+                                    
+                                    // Create properly structured processed video data
+                                    const processedVideoData = {
+                                        ...videoWithMetadata,
+                                        processedPath: outputPath,
+                                        processedAt: new Date().toISOString()
+                                    };
+                                    
+                                    resolve(processedVideoData);
                                 } else {
                                     this.logger.error(`    ❌ Output file too small: ${stats.size} bytes`);
                                     reject(new Error(`Output file is suspiciously small: ${stats.size} bytes`));
