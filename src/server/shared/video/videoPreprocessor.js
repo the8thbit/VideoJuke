@@ -68,10 +68,11 @@ class VideoPreprocessor {
         
         return config;
     }
+    
     /**
      * Creates appropriate audio filter chain based on source channel count and config
      * @param {number} channels - Number of input audio channels
-     * @param {string} channelLayout - Input channel layout (e.g., 'stereo', '5.1')
+     * @param {string} channelLayout - Input channel layout (e.g., 'stereo', '5.1', 'mono')
      * @returns {Array} Array of audio filter strings
      */
     createAudioFilters(channels, channelLayout) {
@@ -86,14 +87,42 @@ class VideoPreprocessor {
         const centerLevel = audioConfig.stereoUpmixing?.centerChannelLevel || 0.5;
         const lfeLevel = audioConfig.stereoUpmixing?.lfeChannelLevel || 0.3;
         
-        if (channels <= 2) {
+        this.logger.log(`    🎵 Processing ${channels}-channel audio (layout: ${channelLayout || 'unknown'})`);
+        
+        if (channels === 1) {
+            // Mono audio - requires special handling to avoid silent output
+            this.logger.log(`    🔊 Converting mono to 5.1 (rear: ${rearLevel}, center: ${centerLevel}, LFE: ${lfeLevel})`);
+            
+            // Apply normalization first if enabled
+            if (normConfig) {
+                const normFilter = `loudnorm=I=${normConfig.targetLUFS}:TP=${normConfig.truePeak}:LRA=${normConfig.LRA}${normConfig.dualMono ? ':dual_mono=true' : ''}`;
+                filters.push(normFilter);
+                this.logger.log(`    🎚️ Applying mono normalization: I=${normConfig.targetLUFS} LUFS`);
+            } else {
+                this.logger.log(`    🔇 Audio normalization disabled`);
+            }
+            
+            // For mono audio, duplicate the single channel to both FL and FR before 5.1 conversion
+            // This ensures we have proper stereo input for the 5.1 pan filter
+            filters.push([
+                'pan=5.1|',
+                'FL=c0|',                               // Front left = mono channel
+                'FR=c0|',                               // Front right = mono channel (same as left)
+                `FC=${centerLevel}*c0|`,                // Center = mono channel at config level
+                `LFE=${lfeLevel}*c0|`,                  // Subwoofer = mono channel at config level
+                `BL=${rearLevel}*c0|`,                  // Back left = mono channel at config level
+                `BR=${rearLevel}*c0`                    // Back right = mono channel at config level
+            ].join(''));
+            
+        } else if (channels === 2) {
             // Stereo to 5.1 conversion with configurable levels
-            this.logger.log(`    🔊 Converting stereo/mono to 5.1 (rear: ${rearLevel}, center: ${centerLevel}, LFE: ${lfeLevel})`);
+            this.logger.log(`    🔊 Converting stereo to 5.1 (rear: ${rearLevel}, center: ${centerLevel}, LFE: ${lfeLevel})`);
             
             // Apply normalization if enabled
             if (normConfig) {
                 const normFilter = `loudnorm=I=${normConfig.targetLUFS}:TP=${normConfig.truePeak}:LRA=${normConfig.LRA}${normConfig.dualMono ? ':dual_mono=true' : ''}`;
                 filters.push(normFilter);
+                this.logger.log(`    🎚️ Applying stereo normalization: I=${normConfig.targetLUFS} LUFS`);
             } else {
                 this.logger.log(`    🔇 Audio normalization disabled`);
             }
@@ -110,26 +139,6 @@ class VideoPreprocessor {
                 `BR=${rearLevel}*FR`                // Back right = front right at config level
             ].join(''));
             
-        } else if (channels >= 6) {
-            // True multichannel content - preserve or process based on config
-            const preserveOriginal = audioConfig.compatibility?.preserveOriginalIfMultichannel;
-            
-            if (preserveOriginal && channelLayout === '5.1') {
-                this.logger.log(`    🔊 Preserving original ${channels}-channel ${channelLayout} audio`);
-                // Light normalization only if enabled
-                if (normConfig) {
-                    const normFilter = `loudnorm=I=${normConfig.targetLUFS}:TP=${normConfig.truePeak}:LRA=${normConfig.LRA}:dual_mono=${normConfig.dualMono}`;
-                    filters.push(normFilter);
-                }
-            } else {
-                this.logger.log(`    🔊 Processing ${channels}-channel audio with normalization`);
-                // Use multichannel-aware loudnorm if enabled
-                if (normConfig) {
-                    const normFilter = `loudnorm=I=${normConfig.targetLUFS}:TP=${normConfig.truePeak}:LRA=${normConfig.LRA}:dual_mono=${normConfig.dualMono}`;
-                    filters.push(normFilter);
-                }
-            }
-            
         } else if (channels === 3 || channels === 4 || channels === 5) {
             // Intermediate channel counts - upmix to 5.1
             this.logger.log(`    🔊 Upmixing ${channels}-channel audio to 5.1`);
@@ -138,21 +147,70 @@ class VideoPreprocessor {
             if (normConfig) {
                 const normFilter = `loudnorm=I=${normConfig.targetLUFS}:TP=${normConfig.truePeak}:LRA=${normConfig.LRA}`;
                 filters.push(normFilter);
+                this.logger.log(`    🎚️ Applying ${channels}-channel normalization: I=${normConfig.targetLUFS} LUFS`);
             }
             
             // Use aresample to upmix to 5.1 with configurable levels
             filters.push('aresample=resampler=soxr');
-            filters.push(`pan=5.1|FL=FL|FR=FR|FC=FC+${centerLevel*0.6}*FL+${centerLevel*0.6}*FR|LFE=${lfeLevel}*FL+${lfeLevel}*FR|BL=${rearLevel*1.5}*FL|BR=${rearLevel*1.5}*FR`);
+            
+            if (channels === 3) {
+                // 2.1 to 5.1 mapping
+                filters.push(`pan=5.1|FL=c0|FR=c1|FC=${centerLevel*0.6}*c0+${centerLevel*0.6}*c1|LFE=c2+${lfeLevel*0.4}*c0+${lfeLevel*0.4}*c1|BL=${rearLevel*1.2}*c0|BR=${rearLevel*1.2}*c1`);
+            } else if (channels === 4) {
+                // Quad to 5.1 mapping
+                filters.push(`pan=5.1|FL=c0|FR=c1|FC=${centerLevel*0.6}*c0+${centerLevel*0.6}*c1|LFE=${lfeLevel}*c0+${lfeLevel}*c1|BL=c2|BR=c3`);
+            } else {
+                // 5.0 to 5.1 mapping
+                filters.push(`pan=5.1|FL=c0|FR=c1|FC=c2|LFE=${lfeLevel}*c0+${lfeLevel}*c1|BL=c3|BR=c4`);
+            }
+            
+        } else if (channels >= 6) {
+            // True multichannel content - preserve or process based on config
+            const preserveOriginal = audioConfig.compatibility?.preserveOriginalIfMultichannel;
+            
+            if (preserveOriginal && (channelLayout === '5.1' || channelLayout === '5.1(side)')) {
+                this.logger.log(`    🔊 Preserving original ${channels}-channel ${channelLayout} audio`);
+                // Light normalization only if enabled
+                if (normConfig) {
+                    const normFilter = `loudnorm=I=${normConfig.targetLUFS}:TP=${normConfig.truePeak}:LRA=${normConfig.LRA}:dual_mono=${normConfig.dualMono}`;
+                    filters.push(normFilter);
+                    this.logger.log(`    🎚️ Applying light multichannel normalization: I=${normConfig.targetLUFS} LUFS`);
+                }
+            } else {
+                this.logger.log(`    🔊 Processing ${channels}-channel audio with normalization`);
+                // Use multichannel-aware loudnorm if enabled
+                if (normConfig) {
+                    const normFilter = `loudnorm=I=${normConfig.targetLUFS}:TP=${normConfig.truePeak}:LRA=${normConfig.LRA}:dual_mono=${normConfig.dualMono}`;
+                    filters.push(normFilter);
+                    this.logger.log(`    🎚️ Applying multichannel normalization: I=${normConfig.targetLUFS} LUFS`);
+                }
+            }
             
         } else {
-            // Fallback for unusual channel counts
-            this.logger.log(`    🔊 Fallback processing for ${channels}-channel audio`);
-            if (normConfig) {
+            // Fallback for unusual channel counts or no audio
+            this.logger.log(`    ⚠️  Fallback processing for ${channels}-channel audio`);
+            if (normConfig && channels > 0) {
                 const normFilter = `loudnorm=I=${normConfig.targetLUFS}:TP=${normConfig.truePeak}:LRA=${normConfig.LRA}`;
                 filters.push(normFilter);
+                this.logger.log(`    🎚️ Applying fallback normalization: I=${normConfig.targetLUFS} LUFS`);
             }
-            filters.push(`pan=5.1|FL=c0|FR=c1|FC=${centerLevel}*c0+${centerLevel}*c1|LFE=${lfeLevel}*c0+${lfeLevel}*c1|BL=${rearLevel}*c0|BR=${rearLevel}*c1`);
+            
+            // Create a safe fallback mapping for unusual channel counts
+            if (channels > 0) {
+                const channelMappings = [];
+                channelMappings.push('FL=c0');                                    // Use first channel for front left
+                channelMappings.push(channels > 1 ? 'FR=c1' : 'FR=c0');         // Use second channel or duplicate first
+                channelMappings.push(`FC=${centerLevel}*c0${channels > 1 ? `+${centerLevel}*c1` : ''}`); // Center mix
+                channelMappings.push(`LFE=${lfeLevel}*c0${channels > 1 ? `+${lfeLevel}*c1` : ''}`);     // LFE mix
+                channelMappings.push(`BL=${rearLevel}*c0`);                      // Rear from first channel
+                channelMappings.push(`BR=${rearLevel}*${channels > 1 ? 'c1' : 'c0'}`); // Rear from second or first
+                
+                filters.push(`pan=5.1|${channelMappings.join('|')}`);
+            }
         }
+        
+        // Log the complete filter chain for debugging
+        this.logger.log(`    🎛️ Audio filter chain: ${filters.join(' -> ')}`);
         
         return filters;
     }
@@ -211,149 +269,166 @@ class VideoPreprocessor {
         
         this.logger.log(`🎬 Preprocessing: ${videoData.filename}`);
         
-        // Get metadata
+        // Get metadata during preprocessing with enhanced logging
         const metadata = await VideoMetadata.extract(videoData.originalPath, this.logger);
+        
         if (!metadata) {
             throw new Error(`Failed to get metadata for: ${videoData.filename}`);
         }
         
-        // Log audio details
-        this.logger.log(`    📊 Source audio: ${metadata.audioChannels} channels, layout: ${metadata.channelLayout || 'unknown'}`);
+        // Special logging for problematic audio formats
+        if (metadata.audioCodec === 'opus' && metadata.audioChannels === 1) {
+            this.logger.log(`    🔍 OPUS mono detected - using enhanced processing pipeline`);
+        }
         
+        // Add metadata to video data
         const videoWithMetadata = {
             ...videoData,
+            videoId: videoId,
+            outputPath: outputPath,
             metadata: metadata
         };
         
         return new Promise((resolve, reject) => {
-            const ffmpegCommand = ffmpeg(videoData.originalPath);
-            
-            // Check if 5.1 processing is enabled
-            const audio51Enabled = this.configManager?.config?.audio?.enabled51Processing !== false;
-            const forceOutputChannels = this.configManager?.config?.audio?.forceOutputChannels || 6;
-            const compatibility = this.configManager?.config?.audio?.compatibility || {};
-            
-            // Check compatibility mode
-            const compatibilityMode = compatibility.compatibilityMode || 'auto';
-            const shouldUseStereo = compatibilityMode === 'stereo' || 
-                                   (compatibilityMode === 'auto' && compatibility.fallbackToStereo);
-            
-            if (!audio51Enabled || shouldUseStereo) {
-                // Stereo processing mode
-                const modeReason = !audio51Enabled ? '5.1 processing disabled' : 'compatibility mode enabled';
-                this.logger.log(`    🔊 Using stereo output (${modeReason})`);
+            try {
+                const attemptProcessing = (useCompatibilityMode = false) => {
+                    let ffmpegCommand = ffmpeg(videoData.originalPath);
+                    
+                    // Determine processing mode based on configuration and metadata
+                    const audioConfig = this.configManager?.config?.audio || {};
+                    const enabled51Processing = audioConfig.enabled51Processing !== false;
+                    const forceOutputChannels = audioConfig.forceOutputChannels || 6;
+                    
+                    // Skip 5.1 processing if disabled or in compatibility mode
+                    if (!enabled51Processing || useCompatibilityMode) {
+                        const modeReason = !enabled51Processing ? 
+                            '5.1 processing disabled' : 'compatibility mode enabled';
+                        this.logger.log(`    🔊 Using stereo output (${modeReason})`);
+                        
+                        // Get normalization config for stereo processing
+                        const normConfig = this.getNormalizationConfig();
+                        
+                        const stereoFilters = [];
+                        if (normConfig) {
+                            const normFilter = `loudnorm=I=${normConfig.targetLUFS}:TP=${normConfig.truePeak}:LRA=${normConfig.LRA}${normConfig.dualMono ? ':dual_mono=true' : ''}`;
+                            stereoFilters.push(normFilter);
+                            this.logger.log(`    🎚️ Applying stereo normalization: I=${normConfig.targetLUFS} LUFS`);
+                        } else {
+                            this.logger.log(`    🔇 Stereo normalization disabled`);
+                        }
+                        
+                        ffmpegCommand
+                            .videoCodec('copy')
+                            .audioCodec('aac')
+                            .audioChannels(2)
+                            .format('mp4')
+                            .outputOptions([
+                                '-movflags', 'faststart',
+                                '-avoid_negative_ts', 'make_zero',
+                                '-b:a', '256k',
+                                '-profile:a', 'aac_low'
+                            ]);
+                        
+                        // Apply normalization filters if enabled
+                        if (stereoFilters.length > 0) {
+                            ffmpegCommand.audioFilters(stereoFilters);
+                        }
+                    } else {
+                        // 5.1 processing pipeline with enhanced error handling
+                        try {
+                            const audioFilters = this.createAudioFilters(metadata.audioChannels, metadata.channelLayout);
+                            const audioCodecConfig = this.getAudioCodec(forceOutputChannels);
+                            
+                            this.logger.log(`    🔧 Using audio codec: ${audioCodecConfig.codec} @ ${audioCodecConfig.bitrate}bps`);
+                            this.logger.log(`    🎛️ Audio filters: ${audioFilters.join(' -> ')}`);
+                            
+                            ffmpegCommand
+                                .videoCodec('copy')
+                                .audioCodec(audioCodecConfig.codec)
+                                .audioChannels(forceOutputChannels)
+                                .audioFilters(audioFilters)
+                                .format('mp4')
+                                .outputOptions([
+                                    '-movflags', 'faststart',
+                                    '-avoid_negative_ts', 'make_zero',
+                                    '-b:a', `${audioCodecConfig.bitrate}`,
+                                    ...(audioCodecConfig.codec === 'ac3' ? 
+                                        ['-channel_layout', '5.1'] : 
+                                        ['-profile:a', 'aac_low'])
+                                ]);
+                        } catch (filterError) {
+                            this.logger.error(`    ❌ Audio filter creation failed:`, filterError);
+                            if (!useCompatibilityMode) {
+                                this.logger.log(`    🔄 Retrying with compatibility mode...`);
+                                return attemptProcessing(true);
+                            }
+                            throw filterError;
+                        }
+                    }
+                    
+                    // Set up event handlers with enhanced error reporting
+                    ffmpegCommand
+                        .on('start', (commandLine) => {
+                            this.logger.log(`🔧 FFmpeg started: ${videoData.filename}`);
+                            this.logger.log(`    📝 Command: ${commandLine.substring(0, 200)}...`);
+                        })
+                        .on('progress', (progress) => {
+                            if (progress.percent && progress.percent % 25 === 0) {
+                                this.logger.log(`    ⏳ Processing: ${Math.round(progress.percent)}%`);
+                            }
+                        })
+                        .on('stderr', (stderrLine) => {
+                            // Log important FFmpeg messages for debugging
+                            if (stderrLine.includes('Error') || stderrLine.includes('Warning') || 
+                                stderrLine.includes('audio') || stderrLine.includes('loudnorm')) {
+                                this.logger.log(`    📋 FFmpeg: ${stderrLine}`);
+                            }
+                        })
+                        .on('error', (err) => {
+                            this.logger.error(`❌ FFmpeg error for ${videoData.filename}:`, err);
+                            
+                            // Check if this is an audio-related error and retry with compatibility mode
+                            const errorMessage = err.message.toLowerCase();
+                            if (!useCompatibilityMode && 
+                                (errorMessage.includes('audio') || 
+                                errorMessage.includes('pan') || 
+                                errorMessage.includes('loudnorm') ||
+                                errorMessage.includes('channel'))) {
+                                
+                                this.logger.log(`    🔄 Audio error detected, retrying with compatibility mode...`);
+                                return attemptProcessing(true);
+                            }
+                            
+                            reject(new Error(`FFmpeg processing failed: ${err.message}`));
+                        })
+                        .on('end', () => {
+                            this.logger.log(`✅ Preprocessed: ${videoData.filename}`);
+                            
+                            // Verify output file exists and has reasonable size
+                            if (FileUtils.fileExists(outputPath)) {
+                                const stats = require('fs').statSync(outputPath);
+                                if (stats.size > 1024) { // At least 1KB
+                                    this.logger.log(`    📁 Output size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+                                    resolve(videoWithMetadata);
+                                } else {
+                                    this.logger.error(`    ❌ Output file too small: ${stats.size} bytes`);
+                                    reject(new Error(`Output file is suspiciously small: ${stats.size} bytes`));
+                                }
+                            } else {
+                                this.logger.error(`    ❌ Output file not created: ${outputPath}`);
+                                reject(new Error(`Output file was not created: ${outputPath}`));
+                            }
+                        })
+                        .save(outputPath);
+                };
                 
-                // Get normalization config for stereo processing too
-                const normConfig = this.getNormalizationConfig();
+                // Start processing
+                attemptProcessing(false);
                 
-                const stereoFilters = [];
-                if (normConfig) {
-                    const normFilter = `loudnorm=I=${normConfig.targetLUFS}:TP=${normConfig.truePeak}:LRA=${normConfig.LRA}${normConfig.dualMono ? ':dual_mono=true' : ''}`;
-                    stereoFilters.push(normFilter);
-                    this.logger.log(`    🎚️ Applying stereo normalization: I=${normConfig.targetLUFS} LUFS`);
-                } else {
-                    this.logger.log(`    🔇 Stereo normalization disabled`);
-                }
-                
-                ffmpegCommand
-                    .videoCodec('copy')
-                    .audioCodec('aac')
-                    .audioChannels(2)
-                    .format('mp4')
-                    .outputOptions([
-                        '-movflags', 'faststart',
-                        '-avoid_negative_ts', 'make_zero',
-                        '-b:a', '256k',
-                        '-profile:a', 'aac_low'
-                    ]);
-                
-                // Apply normalization filters if enabled
-                if (stereoFilters.length > 0) {
-                    ffmpegCommand.audioFilters(stereoFilters);
-                }
-            } else {
-                // 5.1 processing pipeline
-                const audioFilters = this.createAudioFilters(metadata.audioChannels, metadata.channelLayout);
-                const audioCodecConfig = this.getAudioCodec(forceOutputChannels);
-                
-                this.logger.log(`    🔧 Using audio codec: ${audioCodecConfig.codec} @ ${audioCodecConfig.bitrate}bps`);
-                this.logger.log(`    🎛️ Audio filters: ${audioFilters.join(' -> ')}`);
-                
-                ffmpegCommand
-                    .videoCodec('copy')
-                    .audioCodec(audioCodecConfig.codec)
-                    .audioChannels(forceOutputChannels)
-                    .audioFilters(audioFilters)
-                    .format('mp4')
-                    .outputOptions([
-                        '-movflags', 'faststart',
-                        '-avoid_negative_ts', 'make_zero',
-                        // Codec-specific options - avoid duplicate -ac flags
-                        '-b:a', `${audioCodecConfig.bitrate}`,
-                        ...(audioCodecConfig.codec === 'ac3' ? [
-                            '-channel_layout', '5.1'
-                        ] : [
-                            // AAC 5.1 options
-                            '-profile:a', 'aac_low'
-                        ])
-                    ]);
+            } catch (setupError) {
+                this.logger.error(`Failed to set up preprocessing for ${videoData.filename}:`, setupError);
+                reject(setupError);
             }
-            
-            // Attach event handlers to the configured command
-            ffmpegCommand
-                .on('start', (commandLine) => {
-                    this.logger.log(`🔧 FFmpeg started: ${videoData.filename}`);
-                    this.logger.log(`    💻 Command: ${commandLine}`);
-                })
-                .on('progress', (progress) => {
-                    if (progress.percent && progress.percent % 20 === 0) {
-                        this.logger.log(`⏳ Processing ${videoData.filename}: ${Math.round(progress.percent)}%`);
-                    }
-                })
-                .on('end', () => {
-                    const audio51Enabled = this.configManager?.config?.audio?.enabled51Processing !== false;
-                    const forceOutputChannels = this.configManager?.config?.audio?.forceOutputChannels || 6;
-                    const compatibility = this.configManager?.config?.audio?.compatibility || {};
-                    const compatibilityMode = compatibility.compatibilityMode || 'auto';
-                    const shouldUseStereo = compatibilityMode === 'stereo' || 
-                                           (compatibilityMode === 'auto' && compatibility.fallbackToStereo);
-                    
-                    const actuallyUsing51 = audio51Enabled && !shouldUseStereo;
-                    const outputFormat = actuallyUsing51 ? '5.1 surround' : 'stereo';
-                    
-                    this.logger.log(`✅ Preprocessing complete: ${videoData.filename} -> ${outputFormat}`);
-                    
-                    // Calculate crossfade timing based on duration
-                    let crossfadeTiming = null;
-                    if (metadata && metadata.duration) {
-                        crossfadeTiming = this.calculateCrossfadeTiming(metadata.duration);
-                    }
-                    
-                    const processedVideoData = {
-                        ...videoWithMetadata,
-                        processedPath: outputPath,
-                        videoId: videoId,
-                        processedAt: new Date().toISOString(),
-                        crossfadeTiming: crossfadeTiming,
-                        // Audio processing metadata
-                        outputAudioChannels: actuallyUsing51 ? forceOutputChannels : 2,
-                        outputChannelLayout: actuallyUsing51 ? '5.1' : 'stereo',
-                        audioProcessingApplied: actuallyUsing51 ? 
-                            (metadata.audioChannels <= 2 ? 'stereo-to-5.1' : 'multichannel-normalized') :
-                            'stereo-compatible'
-                    };
-                    
-                    resolve(processedVideoData);
-                })
-                .on('error', async (err) => {
-                    this.logger.error(`❌ Preprocessing failed: ${videoData.filename}`, err);
-                    
-                    // Clean up partial file
-                    await FileUtils.deleteFile(outputPath);
-                    
-                    reject(err);
-                })
-                .save(outputPath);
         });
     }
     
