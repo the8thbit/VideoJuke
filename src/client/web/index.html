@@ -121,16 +121,16 @@
             width: 0%;
         }
         .overlay-anchor {
-            position: fixed;
-            bottom: 0;
+            position: absolute;
             left: 50%;
-            transform: translateX(-50%);
-            width: 1px;
-            height: 1px;
-            background: rgba(1, 1, 1, 0.1);
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 2px;
+            height: 2px;
+            background: rgba(1, 1, 1, 0.05);
             z-index: 9;
             opacity: 0;
-            transition: opacity 0.1s ease;
+            border-radius: 100%;
             pointer-events: none;
         }
         .overlay-anchor.active {

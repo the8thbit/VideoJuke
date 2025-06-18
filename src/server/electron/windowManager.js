@@ -14,6 +14,7 @@ class WindowManager {
         const startFullscreen = this.config.ui?.startFullscreen === true;
         
         const windowOptions = {
+            transparent: false,
             webPreferences: {
                 nodeIntegration: false,
                 contextIsolation: true,
