@@ -18,10 +18,10 @@
         }
         .video-container {
             position: fixed;
-            top: 0;
+            top: 0.05vh;
             left: 0;
             width: 100vw;
-            height: 100vh;
+            height: 99.9vh;
             background: #000;
         }
         .video-player {
@@ -93,19 +93,19 @@
         }
         .overlay-anchor {
             position: absolute;
+            bottom: 0;
             left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
+            transform: translateX(-50%);
             width: 2px;
             height: 2px;
             background: rgba(1, 1, 1, 0.05);
             z-index: 9;
-            opacity: 0;
+            opacity: 1;
             border-radius: 100%;
             pointer-events: none;
         }
         .overlay-anchor.active {
-            opacity: 1;
+            background: rgba(1, 1, 1, 0.05);
         }
         .overlay {
             position: fixed;
