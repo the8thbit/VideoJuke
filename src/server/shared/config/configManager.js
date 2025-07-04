@@ -86,6 +86,9 @@ class ConfigManager {
             this.config.video.playbackQueueInitializationThreshold = 10;
         }
         
+        // Validate performance settings
+        this.validatePerformanceConfig();
+        
         // Ensure timeouts are positive numbers
         const timeouts = this.config.timeouts || {};
         for (const [key, value] of Object.entries(timeouts)) {
@@ -95,6 +98,71 @@ class ConfigManager {
                 timeouts[key] = this.getDefaultValue('timeouts.' + key) || 1000;
             }
         }
+    }
+    
+    validatePerformanceConfig() {
+        // Ensure performance config exists
+        if (!this.config.performance) {
+            this.config.performance = {
+                mode: 'balanced',
+                cpuLimiting: {
+                    enabled: true,
+                    maxThreads: 2,
+                    processingDelay: 1000,
+                    threadQueueSize: 512,
+                    priority: 'normal'
+                }
+            };
+        }
+        
+        const performance = this.config.performance;
+        
+        // Validate performance mode
+        const validModes = ['quiet', 'balanced', 'performance'];
+        if (!validModes.includes(performance.mode)) {
+            this.logger.warn(`Invalid performance mode: ${performance.mode}, using 'balanced'`);
+            performance.mode = 'balanced';
+        }
+        
+        // Validate CPU limiting settings
+        if (!performance.cpuLimiting) {
+            performance.cpuLimiting = {
+                enabled: true,
+                maxThreads: 2,
+                processingDelay: 1000,
+                threadQueueSize: 512,
+                priority: 'normal'
+            };
+        }
+        
+        const cpuLimiting = performance.cpuLimiting;
+        
+        // Validate maxThreads (1-8 threads reasonable range)
+        if (typeof cpuLimiting.maxThreads !== 'number' || cpuLimiting.maxThreads < 1 || cpuLimiting.maxThreads > 8) {
+            this.logger.warn(`Invalid maxThreads: ${cpuLimiting.maxThreads}, using 2`);
+            cpuLimiting.maxThreads = 2;
+        }
+        
+        // Validate processingDelay (0-10000ms reasonable range)
+        if (typeof cpuLimiting.processingDelay !== 'number' || cpuLimiting.processingDelay < 0 || cpuLimiting.processingDelay > 10000) {
+            this.logger.warn(`Invalid processingDelay: ${cpuLimiting.processingDelay}, using 1000ms`);
+            cpuLimiting.processingDelay = 1000;
+        }
+        
+        // Validate threadQueueSize (128-2048 reasonable range)
+        if (typeof cpuLimiting.threadQueueSize !== 'number' || cpuLimiting.threadQueueSize < 128 || cpuLimiting.threadQueueSize > 2048) {
+            this.logger.warn(`Invalid threadQueueSize: ${cpuLimiting.threadQueueSize}, using 512`);
+            cpuLimiting.threadQueueSize = 512;
+        }
+        
+        // Validate priority
+        const validPriorities = ['low', 'normal', 'high'];
+        if (!validPriorities.includes(cpuLimiting.priority)) {
+            this.logger.warn(`Invalid priority: ${cpuLimiting.priority}, using 'normal'`);
+            cpuLimiting.priority = 'normal';
+        }
+        
+        this.logger.log(`🎛️ Performance validation complete - Mode: ${performance.mode}, Threads: ${cpuLimiting.maxThreads}, Delay: ${cpuLimiting.processingDelay}ms`);
     }
     
     async getDefaultValue(path) {

@@ -264,7 +264,73 @@ class VideoPreprocessor {
     }
     
     /**
-     * Main preprocessing function with enhanced error handling for audio issues
+     * Gets performance configuration settings with preset support
+     * @returns {Object} Performance configuration object
+     */
+    getPerformanceConfig() {
+        const performanceConfig = this.configManager?.config?.performance || {};
+        const mode = performanceConfig.mode || 'balanced';
+        
+        // Start with preset values
+        const presets = performanceConfig.presets || {};
+        let config = presets[mode] || presets.balanced || {
+            maxThreads: 2,
+            processingDelay: 1000,
+            threadQueueSize: 512,
+            priority: 'normal'
+        };
+        
+        // Override with any direct settings from cpuLimiting
+        const cpuLimiting = performanceConfig.cpuLimiting || {};
+        if (cpuLimiting.enabled !== false) {
+            config = {
+                ...config,
+                ...cpuLimiting
+            };
+        }
+        
+        this.logger.log(`    ⚙️ Performance mode: ${mode} (threads: ${config.maxThreads}, delay: ${config.processingDelay}ms)`);
+        
+        return config;
+    }
+    
+    /**
+     * Applies performance optimizations to FFmpeg command
+     * @param {Object} ffmpegCommand - Fluent-ffmpeg command object
+     * @returns {Object} Modified FFmpeg command with performance settings
+     */
+    applyPerformanceSettings(ffmpegCommand) {
+        const performanceConfig = this.getPerformanceConfig();
+        
+        // Core performance settings
+        const performanceOptions = [
+            '-threads', performanceConfig.maxThreads.toString(),
+            '-thread_queue_size', performanceConfig.threadQueueSize.toString(),
+            '-preset', 'medium'  // Use medium preset for balance of speed/quality
+        ];
+        
+        // Add CPU throttling for quiet mode
+        if (performanceConfig.maxThreads === 1) {
+            performanceOptions.push('-cpu-used', '1');  // Lower CPU usage
+        }
+        
+        return ffmpegCommand.outputOptions(performanceOptions);
+    }
+    
+    /**
+     * Adds processing delay between video preprocessing jobs
+     * @param {number} delayMs - Delay in milliseconds
+     * @returns {Promise} Promise that resolves after delay
+     */
+    async addProcessingDelay(delayMs) {
+        if (delayMs > 0) {
+            this.logger.log(`    ⏱️ Adding ${delayMs}ms processing delay for CPU throttling`);
+            return new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+    }
+    
+    /**
+     * Main preprocessing function with enhanced error handling and performance controls
      * @param {Object} videoData - Video data object with originalPath and filename
      * @returns {Promise<Object>} Processed video data with metadata
      */
@@ -273,6 +339,10 @@ class VideoPreprocessor {
         const outputPath = path.join(this.tempDir, `processed_${videoId}.mp4`);
         
         this.logger.log(`🎬 Preprocessing: ${videoData.filename}`);
+        
+        // Apply CPU throttling delay before starting
+        const performanceConfig = this.getPerformanceConfig();
+        await this.addProcessingDelay(performanceConfig.processingDelay);
         
         // Get metadata during preprocessing with enhanced logging
         const metadata = await VideoMetadata.extract(videoData.originalPath, this.logger);
@@ -289,8 +359,6 @@ class VideoPreprocessor {
         // Add metadata to video data
         const videoWithMetadata = {
             ...videoData,
-            videoId: videoId,
-            outputPath: outputPath,
             metadata: metadata
         };
         
@@ -298,6 +366,9 @@ class VideoPreprocessor {
             try {
                 const attemptProcessing = (useCompatibilityMode = false) => {
                     let ffmpegCommand = ffmpeg(videoData.originalPath);
+                    
+                    // Apply performance settings first
+                    ffmpegCommand = this.applyPerformanceSettings(ffmpegCommand);
                     
                     // Determine processing mode based on configuration and metadata
                     const audioConfig = this.configManager?.config?.audio || {};
@@ -317,80 +388,50 @@ class VideoPreprocessor {
                         if (normConfig) {
                             const normFilter = `loudnorm=I=${normConfig.targetLUFS}:TP=${normConfig.truePeak}:LRA=${normConfig.LRA}${normConfig.dualMono ? ':dual_mono=true' : ''}`;
                             stereoFilters.push(normFilter);
-                            this.logger.log(`    🎚️ Applying stereo normalization: I=${normConfig.targetLUFS} LUFS`);
-                        } else {
-                            this.logger.log(`    🔇 Stereo normalization disabled`);
                         }
                         
-                        ffmpegCommand
+                        ffmpegCommand = ffmpegCommand
+                            .audioFilters(stereoFilters.length > 0 ? stereoFilters : [])
                             .videoCodec('copy')
                             .audioCodec('aac')
-                            .audioChannels(2)
+                            .audioBitrate('256k')
                             .format('mp4')
                             .outputOptions([
                                 '-movflags', 'faststart',
-                                '-avoid_negative_ts', 'make_zero',
-                                '-b:a', '256k',
-                                '-profile:a', 'aac_low'
+                                '-avoid_negative_ts', 'make_zero'
                             ]);
-                        
-                        // Apply normalization filters if enabled
-                        if (stereoFilters.length > 0) {
-                            ffmpegCommand.audioFilters(stereoFilters);
-                        }
                     } else {
-                        // 5.1 processing pipeline with enhanced error handling
-                        try {
-                            const audioFilters = this.createAudioFilters(metadata.audioChannels, metadata.channelLayout);
-                            const audioCodecConfig = this.getAudioCodec(forceOutputChannels);
-                            
-                            this.logger.log(`    🔧 Using audio codec: ${audioCodecConfig.codec} @ ${audioCodecConfig.bitrate}bps`);
-                            this.logger.log(`    🎛️ Audio filters: ${audioFilters.join(' -> ')}`);
-                            
-                            ffmpegCommand
-                                .videoCodec('copy')
-                                .audioCodec(audioCodecConfig.codec)
-                                .audioChannels(forceOutputChannels)
-                                .audioFilters(audioFilters)
-                                .format('mp4')
-                                .outputOptions([
-                                    '-movflags', 'faststart',
-                                    '-avoid_negative_ts', 'make_zero',
-                                    '-b:a', `${audioCodecConfig.bitrate}`,
-                                    ...(audioCodecConfig.codec === 'ac3' ? 
-                                        ['-channel_layout', '5.1'] : 
-                                        ['-profile:a', 'aac_low'])
-                                ]);
-                        } catch (filterError) {
-                            this.logger.error(`    ❌ Audio filter creation failed:`, filterError);
-                            if (!useCompatibilityMode) {
-                                this.logger.log(`    🔄 Retrying with compatibility mode...`);
-                                return attemptProcessing(true);
-                            }
-                            throw filterError;
-                        }
+                        // Full 5.1 processing mode
+                        this.logger.log(`    🔊 Using 5.1 surround processing`);
+                        
+                        const audioFilters = this.createAudioFilters(metadata.audioChannels, metadata.channelLayout);
+                        const outputCodec = this.getAudioCodec(forceOutputChannels);
+                        
+                        ffmpegCommand = ffmpegCommand
+                            .audioFilters(audioFilters.length > 0 ? audioFilters : [])
+                            .videoCodec('copy')
+                            .audioCodec(outputCodec.codec)
+                            .audioBitrate(Math.floor(outputCodec.bitrate / 1000) + 'k')
+                            .audioChannels(forceOutputChannels)
+                            .format('mp4')
+                            .outputOptions([
+                                '-movflags', 'faststart',
+                                '-avoid_negative_ts', 'make_zero'
+                            ]);
                     }
                     
-                    // Set up event handlers with enhanced error reporting
                     ffmpegCommand
                         .on('start', (commandLine) => {
-                            this.logger.log(`🔧 FFmpeg started: ${videoData.filename}`);
-                            this.logger.log(`    📝 Command: ${commandLine.substring(0, 200)}...`);
+                            this.logger.log(`    🔧 FFmpeg started: ${videoData.filename}`);
+                            this.logger.log(`    🔧 Performance settings applied: ${performanceConfig.maxThreads} threads, ${performanceConfig.threadQueueSize} queue size`);
                         })
                         .on('progress', (progress) => {
-                            if (progress.percent && progress.percent % 25 === 0) {
-                                this.logger.log(`    ⏳ Processing: ${Math.round(progress.percent)}%`);
-                            }
-                        })
-                        .on('stderr', (stderrLine) => {
-                            // Log important FFmpeg messages for debugging
-                            if (stderrLine.includes('Error') || stderrLine.includes('Warning') || 
-                                stderrLine.includes('audio') || stderrLine.includes('loudnorm')) {
-                                this.logger.log(`    📋 FFmpeg: ${stderrLine}`);
+                            if (progress.percent && Number.isInteger(progress.percent) && progress.percent % 25 === 0) {
+                                this.logger.log(`    ⚡ Progress: ${progress.percent}% - ${videoData.filename}`);
                             }
                         })
                         .on('error', (err) => {
-                            this.logger.error(`❌ FFmpeg error for ${videoData.filename}:`, err);
+                            this.logger.error(`    ❌ FFmpeg error for ${videoData.filename}:`, err);
                             
                             // Check if this is an audio-related error and retry with compatibility mode
                             const errorMessage = err.message.toLowerCase();
@@ -407,7 +448,7 @@ class VideoPreprocessor {
                             reject(new Error(`FFmpeg processing failed: ${err.message}`));
                         })
                         .on('end', async () => {
-                            this.logger.log(`✅ Preprocessed: ${videoData.filename}`);
+                            this.logger.log(`    ✅ Preprocessed: ${videoData.filename}`);
                             
                             // Verify output file exists and has reasonable size
                             if (await FileUtils.exists(outputPath)) {

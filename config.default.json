@@ -34,6 +34,39 @@
     "persistedHistorySize": 5000,
     "historySize": 50
   },
+  "performance": {
+    "mode": "balanced",
+    "cpuLimiting": {
+      "enabled": true,
+      "maxThreads": 2,
+      "processingDelay": 1000,
+      "threadQueueSize": 512,
+      "priority": "normal"
+    },
+    "presets": {
+      "quiet": {
+        "maxThreads": 1,
+        "processingDelay": 3000,
+        "threadQueueSize": 256,
+        "priority": "low",
+        "_description": "Minimal CPU usage, slower processing"
+      },
+      "balanced": {
+        "maxThreads": 2,
+        "processingDelay": 1000,
+        "threadQueueSize": 512,
+        "priority": "normal",
+        "_description": "Balanced performance and system resource usage (default)"
+      },
+      "performance": {
+        "maxThreads": 4,
+        "processingDelay": 0,
+        "threadQueueSize": 1024,
+        "priority": "normal",
+        "_description": "Maximum performance, higher CPU usage"
+      }
+    }
+  },
   "audio": {
     "enabled51Processing": true,
     "forceOutputChannels": 6,
@@ -100,58 +133,20 @@
     "initializationRetryDelay": 2000,
     "backgroundRecoveryDelay": 30000,
     "queueMonitorInterval": 30000,
-    "queueCriticalMonitorInterval": 5000,
-    "periodicCleanupInterval": 300000,
-    "periodicSaveInterval": 60000,
-    "commandCooldown": 200,
-    "crossfadeBufferTime": 500,
-    "crossfadeMinDuration": 200,
-    "historyRestoreDelay": 3000,
-    "cleanupDelay": 2000,
-    "queueRefillDelay": 100,
-    "backgroundFillDelay": 500,
-    "backgroundFillRetryDelay": 2000,
-    "errorRecoveryDelay": 1000,
-    "debugUpdateInterval": 2000,
-    "statusDisplayDuration": 1500,
-    "connectionTimeout": 5000,
-    "reconnectDelay": 2000,
-    "browserOpenDelay": 1000
+    "queueCriticalThreshold": 5
   },
   "retries": {
-    "maxInitializationAttempts": 3,
-    "maxQueueBuildAttempts": 3,
-    "maxVideoRetryAttempts": 3,
-    "maxConnectionAttempts": 5
-  },
-  "files": {
-    "supportedVideoExtensions": [
-      ".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm", ".mkv",
-      ".m4v", ".3gp", ".mpeg", ".mpg", ".ts", ".mts", ".m2ts"
-    ]
-  },
-  "crossfade": {
-    "enabled": false,
-    "duration": 500
-  },
-  "blur": {
-    "enabled": false,
-    "maxAmount": 8
-  },
-  "ui": {
-    "infoDuration": 5000,
-    "errorDuration": 3000,
-    "tempInfoDuration": 3000,
-    "startFullscreen": true,
-    "showErrorToast": false
-  },
-  "playback": {
-    "skipSeconds": 5,
-    "speedIncrement": 0.25,
-    "minSpeed": 0.25,
-    "maxSpeed": 3.0
+    "videoLoadMaxRetries": 3,
+    "preprocessMaxRetries": 2,
+    "queueRefillMaxRetries": 5
   },
   "system": {
-    "lastConfigHash": ""
+    "tempDirectory": "./temp",
+    "cacheDirectory": "./cache",
+    "logLevel": "info",
+    "enableFileWatcher": true,
+    "lastConfigHash": null,
+    "maxLogFileSize": 10485760,
+    "maxLogFiles": 5
   }
 }
