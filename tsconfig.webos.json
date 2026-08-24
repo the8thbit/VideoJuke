@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES5",
+    "lib": ["ES2015", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": [],
+    "rootDir": "src",
+    "outDir": ".tsbuild/webos",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["src/client/webos", "src/client/core", "src/shared"]
+}

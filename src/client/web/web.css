@@ -1,0 +1,63 @@
+/* Browser-only chrome: a connection indicator and the autoplay gate. */
+
+.connection-status {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  border-radius: 4px;
+  font-size: 12px;
+  z-index: 30;
+  border: 1px solid var(--vj-hairline);
+  transition: opacity 0.3s ease;
+}
+
+.connection-status.connected {
+  border-color: #22c55e;
+  color: #22c55e;
+}
+
+.connection-status.connecting {
+  border-color: #f59e0b;
+  color: #f59e0b;
+}
+
+.connection-status.disconnected,
+.connection-status.failed {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+.connection-status.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/*
+ * Browsers refuse to start audible playback without a user gesture, so the web
+ * client waits behind this button instead of failing an autoplay attempt.
+ */
+.start-button {
+  margin-top: 24px;
+  padding: 14px 32px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--vj-accent);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s ease, opacity 0.2s ease;
+}
+
+.start-button:hover:not(:disabled) {
+  background: var(--vj-accent-strong);
+}
+
+.start-button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}

@@ -1,0 +1,290 @@
+/*
+ * Styles shared by every VideoJuke client. Each platform adds a small
+ * stylesheet of its own for what genuinely differs: browser chrome for the web
+ * client, ten-foot sizing for the TV. Previously all three HTML files carried a
+ * near-identical copy of everything below.
+ */
+
+:root {
+  --vj-accent: #3b82f6;
+  --vj-accent-strong: #2563eb;
+  --vj-danger: #dc3545;
+  --vj-success: #4ade80;
+  --vj-label: #60a5fa;
+  --vj-muted: #cccccc;
+  --vj-surface: rgba(0, 0, 0, 0.9);
+  --vj-surface-solid: rgba(0, 0, 0, 0.85);
+  --vj-hairline: rgba(255, 255, 255, 0.2);
+  --vj-hairline-strong: rgba(255, 255, 255, 0.3);
+  --vj-ui-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --vj-mono-font: 'Courier New', monospace;
+  --vj-overlay-radius: 10px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: #000;
+  color: #fff;
+  overflow: hidden;
+  font-family: var(--vj-ui-font);
+}
+
+/* Video stage ------------------------------------------------------------ */
+
+.video-container {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: #000;
+}
+
+.video-player {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+}
+
+.video-player.visible {
+  opacity: 1;
+}
+
+/* Loading screen --------------------------------------------------------- */
+
+.loading-screen {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 20;
+  transition: opacity 0.5s ease-out;
+}
+
+.loading-screen.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loading-content {
+  text-align: center;
+  max-width: 80%;
+  color: #fff;
+}
+
+.loading-spinner {
+  width: 60px;
+  height: 60px;
+  border: 4px solid rgba(255, 255, 255, 0.1);
+  border-top: 4px solid #fff;
+  border-radius: 50%;
+  animation: vj-spin 1s linear infinite;
+  margin: 0 auto 30px;
+}
+
+@keyframes vj-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-subtitle {
+  color: var(--vj-muted);
+  font-size: 16px;
+  margin-bottom: 20px;
+}
+
+.progress-bar {
+  width: 300px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 10px auto;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--vj-accent);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+/*
+ * A near-invisible element pinned to the stage while any overlay is on screen.
+ * Some compositors drop the video layer out of the overlay's stacking context
+ * unless something else is painted there, which made overlays flicker.
+ */
+.overlay-anchor {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 2px;
+  border-radius: 100%;
+  background: rgba(1, 1, 1, 0.05);
+  z-index: 9;
+  opacity: 1;
+  pointer-events: none;
+}
+
+/* Overlays --------------------------------------------------------------- */
+
+.overlay {
+  position: fixed;
+  background: var(--vj-surface);
+  color: #fff;
+  padding: 15px 20px;
+  border-radius: var(--vj-overlay-radius);
+  font-size: 14px;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s ease;
+  z-index: 10;
+  border: 1px solid var(--vj-hairline);
+  pointer-events: none;
+  max-width: 80vw;
+  word-wrap: break-word;
+}
+
+.overlay.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.info-overlay {
+  bottom: 20px;
+  left: 20px;
+  max-width: 500px;
+}
+
+.error-overlay {
+  top: 20px;
+  right: 20px;
+  background: rgba(220, 53, 69, 0.95);
+  max-width: 400px;
+}
+
+.status-indicator {
+  top: 20px;
+  right: 20px;
+  font-size: 22px;
+  text-align: center;
+  background: transparent;
+  border: none;
+}
+
+/* Panels ----------------------------------------------------------------- */
+
+.panel {
+  position: fixed;
+  top: 20px;
+  max-height: 80vh;
+  background: var(--vj-surface-solid);
+  color: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  z-index: 11;
+  overflow-y: auto;
+  border: 1px solid var(--vj-hairline-strong);
+  display: none;
+}
+
+.panel.visible {
+  display: block;
+}
+
+.panel h3 {
+  color: var(--vj-success);
+  margin: 0 0 10px;
+  font-size: 14px;
+  border-bottom: 1px solid var(--vj-hairline-strong);
+  padding-bottom: 5px;
+}
+
+.panel .section {
+  margin-bottom: 15px;
+}
+
+.panel .label {
+  color: var(--vj-label);
+  font-weight: bold;
+}
+
+.debug-overlay {
+  left: 20px;
+  width: 450px;
+  font-family: var(--vj-mono-font);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.controls-overlay {
+  right: 20px;
+  width: 400px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.controls-overlay h3 {
+  font-size: 16px;
+  margin-bottom: 15px;
+  padding-bottom: 8px;
+}
+
+.controls-section {
+  margin-bottom: 20px;
+}
+
+.controls-section h4 {
+  color: #fbbf24;
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.control-item {
+  margin: 4px 0;
+}
+
+.key {
+  color: var(--vj-label);
+  font-weight: bold;
+}
+
+.panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.panel::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+.panel::-webkit-scrollbar-thumb {
+  background: var(--vj-hairline-strong);
+  border-radius: 4px;
+}
+
+.panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.5);
+}

@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": [
+      "ES2022",
+      "DOM"
+    ],
+    "module": "CommonJS",
+    "moduleResolution": "Node10",
+    "types": [
+      "node"
+    ],
+    "rootDir": ".",
+    "outDir": ".tsbuild/test",
+    "declaration": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": [
+    "tests",
+    "src"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2015",
+    "lib": ["ES2015", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": [],
+    "rootDir": "src",
+    "emitDeclarationOnly": true,
+    "declarationDir": ".tsbuild/client",
+    "tsBuildInfoFile": ".tsbuild/client.tsbuildinfo"
+  },
+  "include": ["src/client", "src/shared"]
+}

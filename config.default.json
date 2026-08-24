@@ -1,27 +1,14 @@
 {
-  "directories": [
-    "C:\\Users\\Public\\Videos\\Sample Videos"
-  ],
-  "seasonalDirectories": [
-    {
-      "directory": "./seasonal/example",
-      "likelihood": 0.1,
-      "conditions": {
-        "dayOfWeek": [1, 2, 3, 4, 5],
-        "hourRange": [9, 17]
-      },
-      "_comment": "Example: 10% chance during weekday business hours"
-    }
-  ],
+  "directories": [],
+  "seasonalDirectories": [],
   "network": {
     "server": {
       "enabled": true,
       "port": 3123,
       "host": "localhost",
-      "autoOpenBrowser": true
-    },
-    "client": {
-      "serverUrl": "http://localhost:3123"
+      "autoOpenBrowser": true,
+      "allowedOrigins": ["null"],
+      "authToken": ""
     }
   },
   "video": {
@@ -29,10 +16,8 @@
     "preprocessedQueueSize": 20,
     "playbackQueueSize": 50,
     "playbackQueueInitializationThreshold": 10,
-    "restartDelay": 2000,
     "playbackHistorySize": 10,
-    "persistedHistorySize": 5000,
-    "historySize": 50
+    "persistedHistorySize": 5000
   },
   "performance": {
     "mode": "balanced",
@@ -48,29 +33,25 @@
         "maxThreads": 1,
         "processingDelay": 3000,
         "threadQueueSize": 256,
-        "priority": "low",
-        "_description": "Minimal CPU usage, slower processing"
+        "priority": "low"
       },
       "balanced": {
         "maxThreads": 2,
         "processingDelay": 1000,
         "threadQueueSize": 512,
-        "priority": "normal",
-        "_description": "Balanced performance and system resource usage (default)"
+        "priority": "normal"
       },
       "performance": {
         "maxThreads": 4,
         "processingDelay": 0,
         "threadQueueSize": 1024,
-        "priority": "normal",
-        "_description": "Maximum performance, higher CPU usage"
+        "priority": "normal"
       }
     }
   },
   "audio": {
     "enabled51Processing": true,
     "forceOutputChannels": 6,
-    "outputChannelLayout": "5.1",
     "stereoUpmixing": {
       "enabled": true,
       "rearChannelLevel": 0.2,
@@ -80,34 +61,27 @@
     "normalization": {
       "enabled": true,
       "strength": "medium",
-      "targetLUFS": -16,
-      "truePeak": -1.5,
-      "LRA": 11,
       "dualMono": true,
       "presets": {
         "light": {
           "targetLUFS": -12,
           "truePeak": -1.0,
-          "LRA": 15,
-          "_description": "Minimal normalization, preserves original dynamics"
+          "LRA": 15
         },
         "medium": {
           "targetLUFS": -16,
           "truePeak": -1.5,
-          "LRA": 11,
-          "_description": "Balanced normalization for streaming (default)"
+          "LRA": 11
         },
         "strong": {
           "targetLUFS": -20,
           "truePeak": -2.0,
-          "LRA": 8,
-          "_description": "Aggressive normalization for consistent volume"
+          "LRA": 8
         },
         "broadcast": {
           "targetLUFS": -23,
           "truePeak": -1.0,
-          "LRA": 7,
-          "_description": "Broadcast standard (EBU R128)"
+          "LRA": 7
         }
       }
     },
@@ -119,12 +93,7 @@
     },
     "compatibility": {
       "preserveOriginalIfMultichannel": true,
-      "fallbackToStereo": true,
-      "volumeAdjustmentFor51": 0.9,
-      "debugMode": false,
-      "forceAAC": true,
-      "conservativeBitrates": true,
-      "compatibilityMode": "5.1"
+      "forceAAC": true
     }
   },
   "timeouts": {
@@ -133,20 +102,72 @@
     "initializationRetryDelay": 2000,
     "backgroundRecoveryDelay": 30000,
     "queueMonitorInterval": 30000,
-    "queueCriticalThreshold": 5
+    "periodicCleanupInterval": 300000,
+    "periodicSaveInterval": 60000,
+    "commandCooldown": 200,
+    "crossfadeBufferTime": 500,
+    "crossfadeMinDuration": 200,
+    "queueRefillDelay": 100,
+    "backgroundFillDelay": 500,
+    "backgroundFillRetryDelay": 2000,
+    "errorRecoveryDelay": 1000,
+    "debugUpdateInterval": 2000,
+    "statusDisplayDuration": 1500,
+    "connectionTimeout": 5000,
+    "browserOpenDelay": 1000,
+    "queueSyncInterval": 30000,
+    "transcodeTimeout": 1800000,
+    "probeTimeout": 60000,
+    "streamUrlLifetime": 43200000
   },
   "retries": {
-    "videoLoadMaxRetries": 3,
-    "preprocessMaxRetries": 2,
-    "queueRefillMaxRetries": 5
+    "maxInitializationAttempts": 3,
+    "maxQueueBuildAttempts": 3
   },
   "system": {
     "tempDirectory": "./temp",
     "cacheDirectory": "./cache",
+    "archiveDirectory": "./archive",
     "logLevel": "info",
-    "enableFileWatcher": true,
-    "lastConfigHash": null,
-    "maxLogFileSize": 10485760,
-    "maxLogFiles": 5
+    "enableFileWatcher": true
+  },
+  "files": {
+    "supportedVideoExtensions": [
+      ".mp4",
+      ".avi",
+      ".mov",
+      ".wmv",
+      ".flv",
+      ".webm",
+      ".mkv",
+      ".m4v",
+      ".3gp",
+      ".mpeg",
+      ".mpg",
+      ".ts",
+      ".mts",
+      ".m2ts"
+    ]
+  },
+  "crossfade": {
+    "enabled": false,
+    "duration": 500
+  },
+  "blur": {
+    "enabled": false,
+    "maxAmount": 8
+  },
+  "ui": {
+    "infoDuration": 3000,
+    "errorDuration": 3000,
+    "tempInfoDuration": 3000,
+    "startFullscreen": true,
+    "showErrorToast": false
+  },
+  "playback": {
+    "skipSeconds": 5,
+    "speedIncrement": 0.25,
+    "minSpeed": 0.25,
+    "maxSpeed": 3
   }
 }

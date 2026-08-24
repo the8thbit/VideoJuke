@@ -1,0 +1,242 @@
+/*
+ * Ten-foot overrides for LG webOS TVs: a fixed 1920x1080 stage, larger type,
+ * and the server-address form the TV shows before it knows where to connect.
+ */
+
+body {
+  font-family: 'LG Smart UI', Arial, sans-serif;
+  width: 1920px;
+  height: 1080px;
+}
+
+/* The TV has no pointer, so overlays fade in and out rather than sliding. */
+.loading-screen.hidden {
+  display: none;
+}
+
+.loading-spinner {
+  width: 80px;
+  height: 80px;
+  border-width: 6px;
+  margin: 0 auto 40px;
+}
+
+.loading-subtitle {
+  font-size: 28px;
+  margin-bottom: 30px;
+  min-height: 40px;
+}
+
+.progress-bar {
+  width: 600px;
+  height: 12px;
+  border-radius: 6px;
+  margin: 20px auto;
+}
+
+.progress-fill {
+  border-radius: 6px;
+}
+
+.overlay {
+  padding: 20px 30px;
+  border-radius: 15px;
+  font-size: 24px;
+  border-width: 2px;
+  z-index: 15;
+}
+
+.info-overlay {
+  bottom: 50px;
+  left: 50px;
+  max-width: 800px;
+  font-size: 28px;
+}
+
+.error-overlay {
+  top: 50px;
+  right: 50px;
+}
+
+.status-indicator {
+  top: 50px;
+  right: 50px;
+  font-size: 48px;
+  padding: 10px;
+}
+
+/* Remote-control guide --------------------------------------------------- */
+
+.controls-overlay {
+  top: auto;
+  right: auto;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  max-width: 1200px;
+  padding: 30px 50px;
+  border-radius: 15px;
+  border: 2px solid var(--vj-accent);
+  background: rgba(0, 0, 0, 0.95);
+  font-size: 20px;
+}
+
+.controls-overlay h3 {
+  text-align: center;
+  margin-bottom: 20px;
+  color: var(--vj-accent);
+  border-bottom: none;
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.controls-grid .control-item {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin: 0;
+}
+
+.control-button {
+  background: #333;
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: bold;
+  min-width: 100px;
+  text-align: center;
+}
+
+.control-button.color-red {
+  background: var(--vj-danger);
+}
+
+.control-button.color-green {
+  background: #28a745;
+}
+
+.control-button.color-yellow {
+  background: #ffc107;
+  color: #000;
+}
+
+.control-button.color-blue {
+  background: #007bff;
+}
+
+/* Server configuration screen -------------------------------------------- */
+
+.config-screen {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+}
+
+.config-screen.hidden {
+  display: none;
+}
+
+.config-container {
+  background: rgba(0, 0, 0, 0.8);
+  padding: 60px;
+  border-radius: 20px;
+  border: 2px solid var(--vj-accent);
+  max-width: 800px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.config-title {
+  font-size: 48px;
+  margin-bottom: 40px;
+  text-align: center;
+  color: var(--vj-accent);
+}
+
+.config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.form-label {
+  font-size: 28px;
+  color: #ccc;
+}
+
+.form-input {
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid var(--vj-hairline-strong);
+  color: #fff;
+  font-size: 32px;
+  padding: 20px;
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+.form-input.focused {
+  border-color: var(--vj-accent);
+  background: rgba(59, 130, 246, 0.1);
+  transform: scale(1.02);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+.form-button {
+  background: var(--vj-accent);
+  color: #fff;
+  font-size: 32px;
+  padding: 25px;
+  border: none;
+  border-radius: 10px;
+  margin-top: 20px;
+  transition: all 0.3s ease;
+}
+
+.form-button.focused {
+  background: var(--vj-accent-strong);
+  transform: scale(1.05);
+  box-shadow: 0 0 20px rgba(37, 99, 235, 0.5);
+}
+
+.config-help {
+  text-align: center;
+  color: #888;
+  font-size: 24px;
+  margin-top: 30px;
+}
+
+.config-error {
+  color: var(--vj-danger);
+  background: rgba(220, 53, 69, 0.1);
+  border: 2px solid var(--vj-danger);
+  padding: 20px;
+  border-radius: 10px;
+  margin-top: 20px;
+  font-size: 24px;
+  text-align: center;
+  display: none;
+}
+
+.config-error.visible {
+  display: block;
+}

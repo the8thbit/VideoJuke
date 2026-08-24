@@ -1,8 +1,12 @@
 node_modules/
 dist/
+release/
+.tsbuild/
 build/
 cache/
 temp/
+archive/
+flagged_for_archive.json
 *.log
 .DS_Store
 config.json

@@ -1,0 +1,4 @@
+/* The desktop app runs full-screen and is driven entirely by the keyboard. */
+* {
+  cursor: none;
+}

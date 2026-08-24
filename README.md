@@ -19,6 +19,9 @@ VideoJuke supports two deployment modes:
 - **Real-time Communication**: WebSocket updates for server status and progress
 - **Keyboard Controls**: Full playback control without mouse interaction
 - **Session Persistence**: Maintains queue and history across restarts
+- **Access Control**: A shared token, generated on first run, guards the web server
+- **Multi-Screen Sync**: One screen leads and the rest mirror it
+- **Archiving**: Flag videos while watching, then move them out of the library in one command
 
 ## Quick Start
 
@@ -45,6 +48,35 @@ npm run web
 
 # Open browser to http://localhost:3123
 ```
+
+### Start Menu Shortcut (Windows)
+
+```bash
+npm run setup
+```
+
+Run that once. It installs dependencies if they are missing, builds, and puts
+**VideoJuke** in your Start Menu.
+
+The shortcut does not just start the app — it runs `scripts/launch.mjs`, which
+first checks whether anything under `src/`, `package.json`, the tsconfigs or
+`config.default.json` has changed since the last build. If nothing has, it starts
+straight away; if something has, it rebuilds first and then starts. So the
+shortcut never runs yesterday's code after an edit, and never spends a minute
+building when it does not need to.
+
+The console window it opens closes itself once the app is up, because the app is
+started detached. If the build fails the window stays open with the error on it.
+
+```bash
+npm run setup -- --mode=web    # a shortcut that starts the web server instead
+npm run setup:remove           # take the shortcut away again
+npm run launch                 # the same build-if-stale-then-start, from a terminal
+```
+
+On anything other than Windows `npm run setup` explains itself and does nothing:
+a Start Menu is a Windows idea. Point your desktop environment's launcher at
+`node scripts/launch.mjs` instead.
 
 ### Development Mode
 
@@ -78,11 +110,20 @@ npm run dev:web
        "server": {
          "enabled": true,
          "port": 3123,
-         "host": "localhost"
+         "host": "localhost",
+         "allowedOrigins": ["null"],
+         "authToken": ""
        }
      }
    }
    ```
+
+   Set `host` to `0.0.0.0` to reach the player from other devices on your
+   network. `allowedOrigins` lists the cross-origin pages allowed to call the
+   API; the browser client is served by this server, so it is same-origin and
+   never needs an entry. The default `"null"` is what the webOS app sends,
+   because a TV app runs from `file://`. Add an origin only if you have written
+   your own client for it.
 
 4. **Restart**: Restart VideoJuke to scan your video directories
 
@@ -91,55 +132,67 @@ npm run dev:web
 ```
 videojuke/
 ├── src/
-│   ├── server/                    # Server-side components
-│   │   ├── electron/              # Electron main process
-│   │   │   ├── server.js          # Electron server entry point
-│   │   │   ├── windowManager.js   # Window management
-│   │   │   └── ipcHandlers.js     # IPC communication
-│   │   ├── web/                   # Web server
-│   │   │   └── server.js          # Web server entry point
-│   │   └── shared/                # Shared server components
-│   │       ├── config/            # Configuration management
-│   │       ├── video/             # Video processing & indexing
-│   │       ├── queue/             # Queue & history management
-│   │       └── utils/             # Utilities & logging
-│   └── client/                    # Client-side components
-│       ├── electron/              # Electron renderer
-│       │   ├── main.js            # Electron app entry point
-│       │   ├── client.js          # Electron client logic
-│       │   └── index.html         # Electron UI
-│       ├── web/                   # Web client
-│       │   ├── client.js          # Web client logic
-│       │   ├── serverAPI.js       # HTTP/WebSocket API wrapper
-│       │   └── index.html         # Web UI
-│       └── shared/                # Shared client components
-│           ├── player/            # Video playback engine
-│           ├── queue/             # Client-side queue management
-│           ├── ui/                # User interface components
-│           └── utils/             # Client utilities
-├── config.json                    # User configuration
-├── config.default.json            # Default configuration template
-├── cache/                         # Application cache
-│   ├── video-index.json           # Cached video directory index
-│   ├── queue-state.json           # Saved queue state
-│   └── persisted-history.json     # Long-term playback history
-└── temp/                          # Processed video cache
+│   ├── shared/                 # Platform-neutral types and pure logic
+│   │   ├── types/              # Domain types, Result, the client/server protocol
+│   │   ├── config/             # Defaults, normalisation, cache fingerprint
+│   │   ├── video/              # Audio filters, codec choice, crossfade timing
+│   │   ├── queue/              # History transitions, random selection
+│   │   ├── time/               # Clock and time-condition evaluation
+│   │   ├── state/              # The one sanctioned mutable-state primitive
+│   │   ├── logging/            # Logger and sinks
+│   │   └── util/               # Numbers, arrays, objects, decoding, formatting
+│   ├── server/                 # Node-only
+│   │   ├── infra/              # Filesystem, ffmpeg, paths, clock, browser launch
+│   │   ├── domain/             # Index, preprocessing, queue, history, persistence
+│   │   ├── api/                # PlayerService, shared by both transports
+│   │   ├── electron/           # Main process, window, IPC
+│   │   └── web/                # HTTP server, routes, streaming, WebSocket
+│   └── client/                 # Browser-only
+│       ├── core/               # The whole player, shared by all three clients
+│       │   ├── dom/            # Element lookup, the single animation loop
+│       │   ├── player/         # Stage, video player, crossfade, blur
+│       │   ├── queue/          # Client-side playback queue
+│       │   ├── ui/             # Loading screen, overlays, debug panel
+│       │   ├── input/          # Commands, keyboard, TV remote
+│       │   ├── transport/      # PlayerApi over IPC and over HTTP
+│       │   └── app/            # The orchestrator every entry point uses
+│       ├── electron/           # Renderer entry, preload, page
+│       ├── web/                # Browser entry and page
+│       └── webos/              # TV entry, storage, setup form, polyfills
+├── tests/                      # node:test suites for the pure core
+├── scripts/                    # Build, test, clean, webOS packaging
+├── docs/ARCHITECTURE.md        # How the pieces fit together, and why
+├── config.default.json         # Complete default configuration
+├── config.json                 # Your overrides (created on first run)
+├── cache/                      # Video index, queue state, playback history
+├── temp/                       # Transcoded videos
+├── archive/                    # Videos moved out by `npm run archive`
+└── flagged_for_archive.json    # What `A` flagged, waiting to be moved
 ```
 
 ## Architecture
 
-### Electron Mode
-- **Main Process**: Handles video processing, queue management, and system integration
-- **Renderer Process**: Manages video playback, UI, and user interaction
-- **IPC Communication**: Electron's inter-process communication for data exchange
-- **File Access**: Direct file system access for optimal performance
+VideoJuke is one application with two servers and three clients.
 
-### Web Mode
-- **Server Process**: HTTP server with REST API and WebSocket support
-- **Client Process**: Browser-based application with real-time updates
-- **HTTP API**: RESTful endpoints for video operations and configuration
-- **WebSocket**: Real-time communication for status updates and logging
-- **Video Streaming**: HTTP range request support for efficient video delivery
+A **server** owns the filesystem: it indexes the configured directories,
+transcodes videos with ffmpeg into `temp/`, keeps a queue of ready videos and
+remembers what has been played. It runs either inside Electron's main process
+or as a standalone HTTP server.
+
+A **client** owns the screen: it keeps a small playback queue, drives two
+`<video>` elements, crossfades between them and handles input. It runs as an
+Electron renderer, a browser page, or a webOS TV app.
+
+The two meet at exactly one interface, `PlayerApi`
+(`src/shared/types/protocol.ts`). Electron implements it over IPC and browsers
+over HTTP plus a WebSocket. The player itself never learns which transport it
+is using, which is why all three clients share the same code.
+
+Decisions are pure functions and effects are thin shells around them: config
+merging, time conditions, ffmpeg filter selection, crossfade timing, random
+selection and history transitions all live in `src/shared` and are unit-tested
+without a filesystem, ffmpeg or a browser. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the layering rules.
 
 ## Configuration
 
@@ -168,9 +221,18 @@ videojuke/
     "startFullscreen": true,
     "showErrorToast": false,
     "infoDuration": 5000
+  },
+  "system": {
+    "tempDirectory": "./temp",
+    "cacheDirectory": "./cache",
+    "archiveDirectory": "./archive"
   }
 }
 ```
+
+`archiveDirectory` is where `npm run archive` moves flagged videos; see
+[Archiving Videos](#archiving-videos). It is never scanned, so it is safe to put
+inside a library.
 
 ### Network Configuration (Web Mode)
 
@@ -180,18 +242,176 @@ videojuke/
     "server": {
       "enabled": true,
       "port": 3123,
-      "host": "0.0.0.0"
+      "host": "0.0.0.0",
+      "autoOpenBrowser": true,
+      "allowedOrigins": ["null"]
     }
   },
   "timeouts": {
     "connectionTimeout": 5000,
-    "reconnectDelay": 2000
+    "transcodeTimeout": 1800000,
+    "probeTimeout": 60000
   },
   "retries": {
-    "maxConnectionAttempts": 5
+    "maxInitializationAttempts": 3,
+    "maxQueueBuildAttempts": 3
   }
 }
 ```
+
+- `connectionTimeout`: how long a client waits for one request.
+- `transcodeTimeout`: how long a single ffmpeg run may take before it is killed.
+  Without a limit, one file that stops making progress holds the preprocessing
+  lock for the life of the process and the queue is never topped up again.
+- `probeTimeout`: the same, for the much quicker `ffprobe` pass.
+- `enabled`: set to `false` and the web server refuses to start.
+
+### Transcoding Performance
+
+Transcoding is the only CPU-hungry thing VideoJuke does, and it happens in the
+background while you are watching. These settings decide how much of the machine
+it is allowed to take.
+
+```json
+{
+  "performance": {
+    "mode": "balanced",
+    "cpuLimiting": {
+      "enabled": true,
+      "maxThreads": 2,
+      "processingDelay": 1000,
+      "threadQueueSize": 512,
+      "priority": "normal"
+    }
+  }
+}
+```
+
+- `mode`: `"quiet"`, `"balanced"` or `"performance"`, selecting one of the
+  presets under `performance.presets`.
+- `cpuLimiting.enabled`: when `true`, this block replaces the selected preset
+  outright rather than merging into it.
+- `maxThreads`: 1 to 8, passed to ffmpeg as `-threads`. At `1`, encoder quality
+  is also traded down for less CPU.
+- `processingDelay`: milliseconds to pause *before* each transcode, so a queue
+  fill spaces its work out instead of running it back to back.
+- `priority`: `"low"`, `"normal"` or `"high"`. The ffmpeg process is renice'd to
+  match, on Windows as well as Linux and macOS. `"high"` means above normal, not
+  the highest class the OS offers — an encoder that outranks the window manager
+  makes the whole machine unresponsive. On Linux, raising priority needs
+  privileges, so `"high"` there logs a warning and carries on at normal.
+
+Only one transcode ever runs at a time, so `maxThreads` is the real ceiling on
+how many cores are in use.
+
+## Access Control
+
+The web server will not start without an access token. On first run it generates
+one, saves it to `config.json` under `network.server.authToken`, and prints it to
+the console **once**:
+
+```
+  VideoJuke generated an access token and saved it to .../config.json
+
+      3f9a1c07b25e4d8891af6cb3027de145
+```
+
+That is the only time it is printed — it is deliberately kept out of the log,
+because every log line is broadcast to every connected screen.
+
+- **A browser on the same machine** needs nothing: the server opens it with the
+  token in the URL, and the page moves it into local storage and strips it from
+  the address bar.
+- **A browser elsewhere** should be opened once as `?token=<token>`. The token is
+  remembered per address, so a player opened at a different hostname or port has
+  to be given it again.
+- **A TV** has an access-token field on its setup screen.
+- **The desktop app** needs nothing at all. It talks to its own process and has
+  no network surface to protect.
+
+The API and the WebSocket both require the token. Video streams cannot — a
+`<video>` element cannot send a header — so the server signs each stream URL it
+hands out with a short-lived key derived from the token. The secret itself never
+appears in a URL, and a signed URL only ever works for the one file it names.
+
+Changing `authToken` in `config.json` takes effect on the next start, not
+immediately. Use letters and digits: a token containing a space or a comma
+cannot travel as a WebSocket subprotocol, and browser clients will silently fall
+back to polling (the server warns about this at startup).
+
+## Multi-Screen Sync
+
+Two or more screens can show the same thing. One leads and the rest follow:
+
+```bash
+# the screen that decides what plays
+npm run electron -- --role=leader
+
+# a second screen that mirrors it
+npm run electron -- --role=follower
+```
+
+In a browser, open the player once as `?role=follower` (remembered per address,
+like the token). On a TV, set the screen role on the setup screen. Leave it blank
+— the default — for a screen that plays on its own, which is what a single screen
+should be.
+
+A follower keeps no queue of its own: it plays what the leader plays, matches its
+pauses, and converges on its position by bending its playback rate by up to 5%,
+jumping only if it is more than a second out. Realistically it lands within a
+frame or two over a LAN — enough that two screens in adjoining rooms feel
+together. Frame-exact sync is not something a browser can promise.
+
+The leader reports where it is once a second and immediately whenever the video
+changes. Followers poll for that at the same rate, and the round trip doubles as
+a clock measurement, so screens whose clocks disagree — a TV that has never
+reached a time server can be hours out — still converge. Where a WebSocket is
+available the update also arrives as a push, which just saves a second of
+latency; the TV client has no WebSocket at all and works purely on the poll.
+
+## Archiving Videos
+
+Press `A` while a video is playing to flag it for archiving; press it again to
+change your mind. An on-screen indicator confirms either way. Nothing is moved
+while the player is running - flagging only records the decision, in
+`flagged_for_archive.json` beside `config.json`:
+
+```json
+{
+  "savedAt": "2026-08-23T06:03:14.628Z",
+  "flagged": [
+    {
+      "originalPath": "X:/videos/holiday/blooper.mp4",
+      "filename": "blooper.mp4",
+      "flaggedAt": "2026-08-23T06:02:58.114Z"
+    }
+  ]
+}
+```
+
+The file is plain JSON and meant to be read - look it over before you commit to
+anything. Then, with the player stopped:
+
+```bash
+npm run archive
+```
+
+Every flagged video is moved into `system.archiveDirectory` (`./archive` by
+default) and the list is cleared.
+
+- A name that already exists in the archive is **never overwritten**; the
+  incoming file becomes `blooper (2).mp4`.
+- A video that cannot be moved - locked, or on a drive that has gone away -
+  stays exactly where it is and stays on the list, so the next run retries it.
+  Every other video still moves.
+- A video that has already been moved or deleted by hand is dropped from the
+  list without complaint.
+- The archive directory is never scanned, even if you put it inside a library,
+  so an archived video does not come back.
+- The video index cache is cleared afterwards, so the next start re-scans.
+
+Run it with the player stopped. Moving a file out from under a running player
+that may be about to transcode it is not a surprise worth arranging.
 
 ## Keyboard Controls
 
@@ -210,6 +430,9 @@ videojuke/
 - `F` - Toggle crossfade transitions
 - `B` - Toggle blur effects
 
+### Library
+- `A` - Flag the current video for archiving, or clear the flag
+
 ### Information & Debug
 - `I` - Show video information overlay
 - `T` - Show video title only
@@ -223,21 +446,30 @@ videojuke/
 
 ### REST Endpoints
 
-- `GET /api/config` - Get application configuration
-- `GET /api/queue-status` - Get queue and initialization status
-- `GET /api/detailed-stats` - Get detailed statistics
-- `GET /api/next-video` - Get next video from queue
-- `GET /api/previous-video` - Get previous video from history
-- `POST /api/video-ended` - Report video completion
-- `POST /api/video-error` - Report video error
-- `POST /api/add-to-history` - Add video to history
-- `POST /api/ensure-video-processed` - Reprocess/validate video
-- `GET /videos?filename=<encoded>` - Stream video files with range support
+- `GET /api/config` - Configuration the client needs
+- `GET /api/status` - Initialization state, queue gauge and video count
+- `GET /api/detailed-stats` - Full diagnostics behind the debug overlay
+- `GET /api/next-video` - Take the next prepared video (204 when there is none)
+- `GET /api/previous-video` - Take the last played video back out of history
+- `POST /api/ensure-playable` - Re-transcode a video whose temp file is gone
+- `POST /api/video-ended` - Report completion, which records it in history
+- `POST /api/video-error` - Report a playback failure
+- `POST /api/manual-skip` - Report a skip
+- `POST /api/return-to-previous` - Report a step backwards
+- `POST /api/playback-queue` - Mirror the client queue so a restart can resume it
+- `GET /videos?filename=<encoded>` - Stream a transcoded video, with range support
+- `GET /health` - Liveness check
+
+Every payload is validated on arrival; a body that does not decode is answered
+with `400` rather than being trusted, and the streaming route refuses any
+filename that would escape the temp directory.
 
 ### WebSocket Events
 
-- `initialization-update` - Server initialization progress
-- `main-log` - Server log messages with timestamp and level
+One message type, a `ServerEvent` discriminated union:
+
+- `{ "type": "initialization", "state": { ... } }` - Startup progress
+- `{ "type": "log", "entry": { ... } }` - Server log entries
 
 ## Supported Video Formats
 
@@ -287,9 +519,6 @@ For 2-channel (stereo) content, VideoJuke creates a full 5.1 mix:
     "normalization": {
       "enabled": true,
       "strength": "medium",
-      "targetLUFS": -16,
-      "truePeak": -1.5,
-      "LRA": 11,
       "dualMono": true,
       "presets": {
         "light": {
@@ -337,12 +566,25 @@ For 2-channel (stereo) content, VideoJuke creates a full 5.1 mix:
 - `"strong"`: Aggressive normalization for consistent volume (-20 LUFS)
 - `"broadcast"`: Professional broadcast standard (-23 LUFS, EBU R128)
 
-**Manual Normalization Settings**:
-- `targetLUFS`: Target loudness level (more negative = more aggressive)
-- `truePeak`: Maximum peak level (prevents clipping and distortion)
-- `LRA`: Loudness range for dynamic content (lower = more compressed)
+**Manual Normalization Settings**: absent by default, so `strength` is what
+decides the loudness. Write one of these only to override the preset. Each is
+clamped to the range ffmpeg's `loudnorm` filter accepts; a value outside it is
+reported at startup and clamped rather than failing every transcode.
+- `targetLUFS`: Target loudness level, -70 to -5 (more negative = more aggressive)
+- `truePeak`: Maximum peak level, -9 to 0 (prevents clipping and distortion)
+- `LRA`: Loudness range for dynamic content, 1 to 50 (lower = more compressed)
 - `dualMono`: Enhanced processing for dual-mono content
 - `enabled`: Set to `false` to disable all normalization
+
+**Output Channels** (`forceOutputChannels`): how many channels the transcode is
+written with, 1 to 8. The default of `6` is what the 5.1 upmix exists for: a
+stereo source is panned up to 5.1 and every speaker gets signal.
+
+Set it to `1` or `2` and the upmix is skipped entirely, because there is nothing
+to upmix to — a genuinely multichannel source is downmixed once, by ffmpeg, from
+its real layout. Previously the pan ran anyway and the result was folded straight
+back down to two, which put audible crosstalk into hard-panned mixes and left
+them several dB under the loudness target.
 
 **Stereo Upmixing Levels**:
 - `rearChannelLevel`: Volume of duplicated rear channels (0.0-1.0)
@@ -885,60 +1127,82 @@ videos/
 
 ## Dependencies
 
-### Core
-- **Electron** - Desktop application framework
-- **Express** - Web server framework
-- **WebSocket** - Real-time communication
-- **FFmpeg** - Video processing and metadata extraction
+### Runtime
+- **express** - HTTP server for web mode
+- **ws** - WebSocket transport for server-pushed events
+- **cors** - Cross-origin access for remote clients
+- **fluent-ffmpeg**, **ffmpeg-static**, **ffprobe-static** - Transcoding and probing
 
-### Video Processing
-- **fluent-ffmpeg** - FFmpeg wrapper for Node.js
-- **ffmpeg-static** - Static FFmpeg binaries
-- **ffprobe-static** - Static FFprobe binaries
+### Build and development
+- **typescript** - The whole codebase, type-checked in strict mode
+- **esbuild** - Bundles the three browser clients
+- **electron**, **electron-builder** - Desktop shell and installers
 
-### Utilities
-- **glob** - File pattern matching
-- **mime-types** - MIME type detection
-- **cors** - Cross-origin resource sharing
+Directory scanning uses Node's own recursive `readdir`, file types come from
+the configurable extension list, and the browser is opened with a three-line
+platform command, so `glob`, `mime-types` and `open` are no longer needed.
 
 ## Development
 
-### Building
+### Scripts
+
 ```bash
-npm run build
+npm run build       # Compile the server and bundle the clients into dist/
+npm run typecheck   # Type-check everything without emitting
+npm test            # Run the unit tests for the pure core
+npm run clean       # Remove dist/, build/, release/ and .tsbuild/
+
+npm start           # Build, then launch the desktop app
+npm run web         # Build, then serve on http://localhost:3123
+npm run dev:electron  # As above, with DevTools open
 ```
 
-### Development Scripts
-```bash
-# Electron with DevTools
-npm run dev:electron
+### Build pipeline
 
-# Web server with auto-restart
-npm run dev:web
-```
+| Target            | Pipeline                                    | Output                       |
+| ----------------- | ------------------------------------------- | ---------------------------- |
+| Server + Electron | `tsc` to CommonJS                           | `dist/server`, `dist/shared` |
+| Electron renderer | `esbuild` bundle, Chromium target           | `dist/client/electron`       |
+| Web client        | `esbuild` bundle, ES2017 target             | `dist/client/web`            |
+| webOS TV          | `tsc` to ES5, then an `esbuild` IIFE bundle | `build/webos/package`        |
 
-### File Locations
-- **Configuration**: `config.json` (user), `config.default.json` (template)
-- **Cache**: `cache/` directory for persistent data
-- **Temporary Files**: `temp/` directory for processed videos
-- **Logs**: Console output with structured logging
+### Tests
+
+`tests/` holds `node:test` suites covering config normalisation, time
+conditions, audio filter construction, crossfade timing, history, selection and
+the shared utilities. They need no ffmpeg, no browser and no filesystem, and
+one of them asserts that `config.default.json` normalises to exactly the
+defaults declared in code, so the two cannot drift apart.
+
+### File locations
+- **Configuration**: `config.json` in the working directory; `config.default.json` ships with the app
+- **Cache**: `cache/` holds the video index, queue state and playback history
+- **Temporary files**: `temp/` holds transcoded videos
+- **Logs**: Console output, filtered by `system.logLevel`
+
+User data follows the working directory, so one installation can serve
+different libraries from different directories.
 
 ## Deployment
 
-### Desktop Distribution
+### Desktop distribution
+
+```bash
+npm run package:electron
+```
+
+Creates platform-specific installers in `release/`.
+
+### Web server deployment
+
 ```bash
 npm run build
-```
-Creates platform-specific installers in `dist/` directory.
+NODE_ENV=production node dist/server/web/main.js
 
-### Web Server Deployment
-```bash
-# Production server
-NODE_ENV=production npm run web
-
-# Process manager (recommended)
-pm2 start src/server/web/server.js --name videojuke-server
+# Under a process manager
+pm2 start dist/server/web/main.js --name videojuke-server
 ```
+
 ## Browser Compatibility (Web Mode)
 
 ### Required Features
@@ -960,153 +1224,92 @@ Basic mobile browser support available, though optimized for desktop use.
 
 ## Overview
 
-The VideoJuke WebOS build system converts modern ES6 JavaScript modules into WebOS-compatible global scripts. This system has been enhanced to handle complex module dependencies and ensure compatibility with WebOS TV platforms.
+webOS TVs run an old Chromium, so the TV client is compiled down rather than
+shipped as-is. TypeScript emits ES5, esbuild bundles the result into a single
+IIFE, and a small polyfill module fills in the handful of built-ins the TV
+lacks. `ares-package` then wraps it as an IPK.
 
-## Recent Improvements
+Earlier versions did this with a hand-written regular-expression transpiler
+that rewrote `const`, template literals and arrow functions by pattern
+matching, then validated its own output by grepping for `=>`. Any syntax it
+had not been taught about produced silently broken JavaScript. A real compiler
+removes that entire class of failure.
 
-### Fixed Critical Issues
-
-1. **Module Import Error**: Fixed missing `vm` module import that was causing "vm is not defined" errors during validation
-2. **ES6 Compatibility**: Added comprehensive ES6 to ES5 conversion for better WebOS compatibility:
-   - Template literals → String concatenation
-   - Arrow functions → Regular functions
-   - `const`/`let` → `var` declarations
-3. **Export Statement Removal**: Enhanced regex patterns to properly remove all ES6 export statements
-4. **Cross-dependency Resolution**: Improved handling of module dependencies between converted files
-5. **Enhanced Error Handling**: Added comprehensive error handling with detailed logging throughout the conversion process
-
-### Build Process Improvements
-
-1. **Structured Logging**: Implemented proper indentation and clear status messages for better debugging
-2. **Validation Enhancement**: Added thorough JavaScript syntax validation with compatibility warnings
-3. **HTML Script Loading**: Fixed WebOS HTML file to ensure proper script loading order
-4. **Robust File Operations**: Added better file existence checks and directory creation
-5. **ES5 Conversion**: Added automatic conversion of modern JavaScript features to ES5 for maximum compatibility
-
-## Build Commands
+## Build commands
 
 ```bash
-# Build WebOS app
 npm run package:webos
-
-# Platform-specific builds
-scripts/package-webos.bat    # Windows
-scripts/package-webos.sh     # Linux/macOS
 ```
 
-## Build Process
+The same command works on every platform. When `ares-package` is not installed
+the build still produces the unpackaged app in `build/webos/package` and says
+so, so you can inspect or side-load it.
 
-1. **File Preparation**: Copies WebOS app files and assets
-2. **Module Conversion**: Converts ES6 modules to global window objects
-3. **ES6 to ES5 Translation**: Converts modern JavaScript to ES5 for compatibility
-4. **Dependency Resolution**: Fixes cross-references between modules
-5. **Validation**: Performs syntax and compatibility validation
-6. **HTML Generation**: Updates HTML with proper script loading order
-7. **Packaging**: Creates IPK package using `ares-package`
+## Build process
 
-## Module Conversion Process
+1. **Compile**: `tsc -p tsconfig.webos.json` emits ES5 into `.tsbuild/webos`
+2. **Bundle**: esbuild produces one self-contained `client.js` targeting ES5
+3. **Assets**: the page, stylesheets, icons, `appinfo.json` and the webOS TV
+   library are copied into `build/webos/package`
+4. **Package**: `ares-package` produces an IPK in `release/webos`
 
-### Input (ES6 Module)
-```javascript
-import Logger from '../utils/logger.js';
-export default class VideoPlayer {
-    constructor() {
-        this.logger = new Logger();
-    }
-}
-```
-
-### Output (WebOS Compatible)
-```javascript
-(function() {
-    'use strict';
-    
-    var VideoPlayer = function VideoPlayer() {
-        this.logger = new window.Logger();
-    };
-    
-    try {
-        if (typeof VideoPlayer !== 'undefined') {
-            window.VideoPlayer = VideoPlayer;
-            console.log('✅ Loaded VideoPlayer module');
-        } else {
-            console.error('❌ Failed to export VideoPlayer');
-        }
-    } catch (error) {
-        console.error('❌ Error exporting VideoPlayer:', error);
-    }
-})();
-```
-
-## File Structure
-
-```
-build/webos/package/
-├── client.js                    # Main application entry point
-├── shared/
-│   ├── utils/
-│   │   ├── logger.js           # Logging utility
-│   │   └── formatter.js        # Data formatting functions
-│   ├── ui/
-│   │   ├── loadingScreen.js    # Loading screen component
-│   │   └── overlays.js         # Video overlay components
-│   ├── player/
-│   │   ├── blur.js            # Blur effect handler
-│   │   ├── crossfade.js       # Crossfade transition handler
-│   │   └── videoPlayer.js     # Main video player
-│   └── queue/
-│       └── playbackQueue.js   # Playback queue management
-├── web/
-│   └── serverAPI.js           # Server communication API
-├── storage.js                 # WebOS storage wrapper
-├── remoteControl.js          # WebOS remote control handler
-└── webOSTVjs-1.2.12/        # WebOS TV SDK library
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Syntax Errors**: The build process now includes comprehensive validation and will report specific syntax issues
-2. **Module Dependencies**: Cross-dependencies are automatically resolved during the build process
-3. **ES6 Compatibility**: Modern JavaScript features are automatically converted to ES5
-4. **Missing Files**: The build process will report missing source files with clear error messages
-
-### Debugging
-
-- Build logs include detailed conversion information with file sizes and transformation details
-- Validation errors are reported with specific line numbers and issue descriptions
-- The build process creates debug information in `build/webos/package/debug/` when errors occur
+The TV client shares every module under `src/client/core` with the desktop and
+browser clients. Only the entry point, the server-address form, the storage
+adapter, the remote-control key map and the polyfills are webOS-specific.
 
 ## Requirements
 
-- Node.js 14+ for the build process
-- WebOS SDK for packaging (`ares-package` command)
-- Source files must be present in the expected directory structure
+- Node.js 20 or newer for the build
+- The webOS SDK for packaging (the `ares-package` command)
 
-## WebOS SDK Installation
+## WebOS SDK installation
 
-1. Download the WebOS SDK from: https://webostv.developer.lge.com/sdk/installation/
-2. Install the SDK following the official documentation
-3. Ensure `ares-package` is available in your PATH
+1. Download the webOS SDK from https://webostv.developer.lge.com/sdk/installation/
+2. Install it following the official documentation
+3. Ensure `ares-package` is on your PATH
 
-## Installation Commands
+## Installation commands
 
 ```bash
-# Install on WebOS TV
-ares-setup-device           # Configure TV connection
-ares-install package.ipk    # Install the generated package
-ares-launch com.videojuke.player  # Launch the application
+ares-setup-device                 # Configure the TV connection
+ares-install release/webos/*.ipk  # Install the generated package
+ares-launch com.videojuke.player  # Launch it
 ```
 
-## Architecture Notes
+## Configuring the TV
 
-The WebOS build system maintains a clear separation between:
-- **Shared modules**: Platform-independent business logic
-- **WebOS-specific modules**: Platform-specific implementations (storage, remote control)
-- **Client code**: Main application entry point that orchestrates all modules
+On first launch the app asks for the address of a machine running
+`npm run web`. Use the arrow keys to move between the fields and OK to confirm.
+The address is remembered, and the blue remote button returns to the form.
 
-This architecture ensures that the core application logic remains platform-agnostic while providing WebOS-specific implementations where needed.
+Set `network.server.host` to `0.0.0.0` on the server so the TV can reach it.
+
+## Remote control
+
+| Button      | Action           |
+| ----------- | ---------------- |
+| OK, Play    | Play/pause       |
+| Right       | Next video       |
+| Left        | Previous video   |
+| Up, Down    | Playback speed   |
+| Red         | Toggle crossfade |
+| Green       | Toggle blur      |
+| Yellow      | Show video info  |
+| Blue        | Server settings  |
+| Back        | Exit             |
+
+## Build troubleshooting
+
+**The bundle fails to build**: the TypeScript compiler reports the file and
+line. There is no separate validation step to interpret, because the compiler
+is the validation.
+
+**A feature works in the browser but not on the TV**: the TV engine predates
+much of the standard library. Add the missing built-in to
+`src/client/webos/polyfills.ts` rather than working around it at the call site.
+
+**`ares-package` is not found**: install the webOS SDK, or use the unpackaged
+output in `build/webos/package` directly.
 
 ## Troubleshooting
 
