@@ -1,19 +1,17 @@
 /**
  * What the Start Menu shortcut runs: bring everything up to date, then start.
  *
- * Three things can be out of date by the time somebody clicks the icon: the
- * source (behind the branch it tracks), the build (older than the source), and
- * yt-dlp (which stops working when it ages). Each is checked here, and none of
- * them can stop the app opening: a laptop that is offline, a repository with
- * local edits, a downloader that is busy - all of those are reasons to start
- * what is already installed, not reasons to show an error instead of television.
+ * Two things can be out of date by the time somebody clicks the icon: the
+ * source, behind the branch it tracks, and the build, older than the source.
+ * Neither can stop the app opening - a laptop that is offline, or a working
+ * copy with local edits, is a reason to start what is already installed rather
+ * than to show an error instead of television.
  */
 import { spawn } from 'node:child_process';
 
 import { fromRoot, logStep, projectRoot, run } from './lib/run.mjs';
 import { inspectRemote, pullFastForward } from './lib/remote.mjs';
 import { inspectBuild } from './lib/staleness.mjs';
-import { updateYtDlp } from './lib/ytdlp.mjs';
 
 const MODES = {
   electron: ['node_modules/electron/cli.js', 'dist/server/electron/main.js'],
@@ -78,14 +76,11 @@ const main = async () => {
 
   let pulled = false;
   if (skipUpdates) {
-    logStep('Skipping the update checks (--no-update)');
+    logStep('Skipping the update check (--no-update)');
   } else {
     logStep('Checking for updates');
-    // Together: both talk to the network, and running them one after the other
-    // would add one round trip to every launch for no reason. Their output is
-    // collected and printed in a fixed order rather than as it arrives.
-    const [remote, ytdlp] = await Promise.all([updateFromRemote(), updateYtDlp()]);
-    for (const line of [...remote.lines, ...ytdlp.lines]) {
+    const remote = await updateFromRemote();
+    for (const line of remote.lines) {
       process.stdout.write(`  ${line}\n`);
     }
     pulled = remote.pulled;
