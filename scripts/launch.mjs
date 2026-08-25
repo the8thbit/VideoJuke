@@ -1,14 +1,19 @@
 /**
- * What the Start Menu shortcut runs: build if anything has changed, then start.
+ * What the Start Menu shortcut runs: bring everything up to date, then start.
  *
- * A shortcut that only started the app would run yesterday's code after an edit,
- * and one that always built would take a minute every time. This checks, which
- * costs a few milliseconds when there is nothing to do - which is almost always.
+ * Three things can be out of date by the time somebody clicks the icon: the
+ * source (behind the branch it tracks), the build (older than the source), and
+ * yt-dlp (which stops working when it ages). Each is checked here, and none of
+ * them can stop the app opening: a laptop that is offline, a repository with
+ * local edits, a downloader that is busy - all of those are reasons to start
+ * what is already installed, not reasons to show an error instead of television.
  */
 import { spawn } from 'node:child_process';
 
 import { fromRoot, logStep, projectRoot, run } from './lib/run.mjs';
+import { inspectRemote, pullFastForward } from './lib/remote.mjs';
 import { inspectBuild } from './lib/staleness.mjs';
+import { updateYtDlp } from './lib/ytdlp.mjs';
 
 const MODES = {
   electron: ['node_modules/electron/cli.js', 'dist/server/electron/main.js'],
@@ -47,15 +52,60 @@ const pause = async (message) => {
   });
 };
 
+/**
+ * Brings the working copy up to date with the branch it tracks, if it safely
+ * can. Returns its output rather than printing it, so the two update checks can
+ * run at the same time without interleaving their lines.
+ */
+const updateFromRemote = async () => {
+  const decision = await inspectRemote();
+  if (decision.action !== 'pull') {
+    return {
+      pulled: false,
+      lines: [decision.action === 'current' ? decision.reason : `not updating: ${decision.reason}`],
+    };
+  }
+
+  const pull = await pullFastForward();
+  return pull.pulled
+    ? { pulled: true, lines: [`pulled ${decision.reason}`, `  ${pull.reason}`] }
+    : { pulled: false, lines: [`could not update: ${pull.reason}`] };
+};
+
 const main = async () => {
   const mode = readMode();
+  const skipUpdates = process.argv.includes('--no-update');
+
+  let pulled = false;
+  if (skipUpdates) {
+    logStep('Skipping the update checks (--no-update)');
+  } else {
+    logStep('Checking for updates');
+    // Together: both talk to the network, and running them one after the other
+    // would add one round trip to every launch for no reason. Their output is
+    // collected and printed in a fixed order rather than as it arrives.
+    const [remote, ytdlp] = await Promise.all([updateFromRemote(), updateYtDlp()]);
+    for (const line of [...remote.lines, ...ytdlp.lines]) {
+      process.stdout.write(`  ${line}\n`);
+    }
+    pulled = remote.pulled;
+  }
+
   const build = await inspectBuild();
 
-  if (build.stale) {
-    logStep(`Building: ${build.reason}`);
-    if (build.reason === 'dependencies are not installed') {
-      await run('npm', ['install']);
-    }
+  // Source that arrived in a pull is newer than dist, so `inspectBuild` reports
+  // it stale - but only because git happens to stamp checked-out files with the
+  // time of the checkout. That is a true fact about git rather than a promise it
+  // makes, so a pull forces the build rather than inferring it from mtimes.
+  if (build.stale || pulled) {
+    // Before every build, not only when node_modules is missing: a pull can
+    // move the lockfile, and a build against dependencies that no longer match
+    // it fails in ways that look like source errors. An install with nothing to
+    // do costs a couple of seconds; diagnosing that costs an evening.
+    logStep('Installing dependencies');
+    await run('npm', ['install']);
+
+    logStep(`Building: ${pulled && !build.stale ? 'new commits were pulled' : build.reason}`);
     await run(process.execPath, [fromRoot('scripts', 'build.mjs')]);
   } else {
     logStep(build.reason);

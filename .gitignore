@@ -6,6 +6,7 @@ build/
 cache/
 temp/
 archive/
+tools/
 flagged_for_archive.json
 *.log
 .DS_Store

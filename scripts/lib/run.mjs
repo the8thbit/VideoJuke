@@ -61,6 +61,64 @@ export const runTsc = (args) =>
   run(process.execPath, [fromRoot('node_modules', 'typescript', 'bin', 'tsc'), ...args]);
 
 /**
+ * Runs a command for its output rather than its effect, and never throws.
+ *
+ * `run` is wrong for anything whose failure is an answer rather than a problem:
+ * it inherits stdio, so the output cannot be read, and it rejects, so every
+ * caller would need a try/catch around a question it merely wanted answered.
+ * This reports the exit code instead, and enforces a deadline - which `run`
+ * has no need of and this does, because the one caller talks to a network.
+ */
+export const capture = (command, args, options = {}) =>
+  new Promise((resolvePromise) => {
+    const useShell = process.platform === 'win32' && !command.endsWith('.exe');
+    const child = spawn(command, useShell ? args.map(quoteForShell) : args, {
+      cwd: projectRoot,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: useShell,
+      ...options,
+      env: { ...process.env, ...(options.env ?? {}) },
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk;
+    });
+
+    // Node's own `timeout` option signals the child but does not tell the
+    // caller why it died, and "the network hung" has to be distinguishable from
+    // "the command failed", or a launcher would report an offline laptop as a
+    // broken repository.
+    const deadline =
+      options.timeoutMs === undefined
+        ? null
+        : setTimeout(() => {
+            timedOut = true;
+            child.kill('SIGKILL');
+          }, options.timeoutMs);
+
+    const settle = (code, error) => {
+      if (deadline !== null) clearTimeout(deadline);
+      resolvePromise({
+        ok: !timedOut && error === undefined && code === 0,
+        code,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+        timedOut,
+        error,
+      });
+    };
+
+    child.on('error', (error) => settle(null, error));
+    child.on('close', (code) => settle(code));
+  });
+
+/**
  * Whether a `run` failure means the command was not there to begin with.
  *
  * Without a shell, `spawn` reports that as an `ENOENT` error. Through cmd.exe it

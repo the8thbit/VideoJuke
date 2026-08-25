@@ -51,14 +51,14 @@ main(async () => {
   const directory = readFlag('target', startMenuDirectory());
   const shortcutPath = join(directory, SHORTCUT_NAME);
 
-  if (!(await pathExists(fromRoot('node_modules')))) {
-    logStep('Installing dependencies');
-    await run('npm', ['install']);
-  }
-
   if (readFlag('build', 'yes') !== 'no') {
     const build = await inspectBuild();
     if (build.stale) {
+      // Unconditionally, as the launcher does: node_modules existing is not the
+      // same as it matching the lockfile, and a build against a mismatch fails
+      // in ways that read as source errors.
+      logStep('Installing dependencies');
+      await run('npm', ['install']);
       // Built here rather than on the first click, so the shortcut is only ever
       // created for a build that is known to work - and so that first click is
       // instant rather than a minute of console.
