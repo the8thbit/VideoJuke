@@ -1,5 +1,5 @@
 import type { Logger } from '../../../shared/types/logging';
-import type { CommandDispatcher, PlayerCommand } from './commands';
+import { isPanelCommand, type CommandDispatcher, type PlayerCommand } from './commands';
 
 /**
  * Keys the player answers, indexed by the lower-cased `event.key`.
@@ -27,9 +27,26 @@ export const KEY_COMMANDS: Readonly<Record<string, PlayerCommand>> = {
   i: 'show-info',
   t: 'show-title',
   q: 'toggle-debug',
+  o: 'toggle-options',
   '?': 'toggle-controls',
   '/': 'toggle-controls',
   escape: 'exit',
+};
+
+/**
+ * Whether a key press belongs to a form field rather than to the player:
+ * typing "n" into the options panel must not skip a video.
+ */
+export const isEditableTarget = (target: EventTarget | null): boolean => {
+  if (target === null || typeof (target as Element).tagName !== 'string') return false;
+  const element = target as HTMLElement;
+  const tag = element.tagName.toLowerCase();
+  if (tag === 'textarea' || tag === 'select') return true;
+  if (tag === 'input') {
+    const type = ((element as HTMLInputElement).type || 'text').toLowerCase();
+    return type !== 'checkbox' && type !== 'radio' && type !== 'button' && type !== 'submit';
+  }
+  return element.isContentEditable === true;
 };
 
 /**
@@ -43,10 +60,19 @@ export const attachKeyboardControls = (options: {
   readonly target: Document;
   readonly dispatch: CommandDispatcher;
   readonly logger: Logger;
+  /**
+   * True while the options panel is open. Only the commands that close it are
+   * passed on, and every other key is left to the panel and the browser.
+   */
+  readonly isSuspended?: () => boolean;
 }): (() => void) => {
-  const { target, dispatch, logger } = options;
+  const { target, dispatch, logger, isSuspended } = options;
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    // Something nearer the key - the options panel - has already answered it.
+    if (event.defaultPrevented) return;
+    if (isEditableTarget(event.target)) return;
+
     // A modifier means the key belongs to the browser or the OS, not to us.
     // Without this, Ctrl+R reloaded nothing and restarted the video instead,
     // Ctrl+P opened no print dialog and stepped backwards, and Cmd+Q neither
@@ -56,6 +82,7 @@ export const attachKeyboardControls = (options: {
 
     const command = KEY_COMMANDS[event.key.toLowerCase()];
     if (command === undefined) return;
+    if (isSuspended !== undefined && isSuspended() && !isPanelCommand(command)) return;
 
     // Only a bound key is swallowed, so the browser's own shortcuts still work.
     event.preventDefault();

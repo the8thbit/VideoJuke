@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { selectVideo, type SeasonalCandidate } from '../src/shared/queue/selection';
+import {
+  selectVideo,
+  type DirectoryCandidate,
+  type SeasonalCandidate,
+} from '../src/shared/queue/selection';
 import { toLocalTimeFacts } from '../src/shared/time/clock';
 import { decodeTimeCondition } from '../src/shared/time/timeConditions';
 import { asIsoTimestamp, asSourceVideoPath } from '../src/shared/types/brand';
@@ -42,7 +46,9 @@ const seeded = (seed: number) => {
   };
 };
 
-const REGULAR = [video('X:/videos/a.mp4'), video('X:/videos/b.mp4')];
+const REGULAR: readonly DirectoryCandidate[] = [
+  { directory: 'X:/videos', bias: 1, videos: [video('X:/videos/a.mp4'), video('X:/videos/b.mp4')] },
+];
 
 const christmas = (
   raw: unknown,
@@ -229,7 +235,7 @@ describe('empty pools', () => {
     const outcome = selectVideo({
       regular: REGULAR,
       seasonal: [],
-      excludedPaths: new Set(REGULAR.map((entry) => entry.originalPath)),
+      excludedPaths: new Set(REGULAR[0]?.videos.map((entry) => entry.originalPath)),
       facts: factsAt('2026-12-10T12:00:00'),
       random: seeded(1),
     });

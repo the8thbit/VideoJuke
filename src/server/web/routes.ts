@@ -7,6 +7,7 @@ import { HTTP_ROUTES } from '../../shared/types/protocol';
 import { toError } from '../../shared/types/result';
 import type { PlayableVideo, PreprocessedVideo } from '../../shared/types/video';
 import { readField } from '../../shared/util/decode';
+import { isPlainObject } from '../../shared/util/objects';
 import type { PlayerService } from '../api/playerService';
 import { decodeLeaderPublication } from '../domain/leaderPublication';
 import type { VideoPathGuard } from '../domain/videoPaths';
@@ -43,6 +44,12 @@ const readVideo = (body: unknown, guard: VideoPathGuard): PreprocessedVideo | nu
 const readVideoList = (body: unknown, guard: VideoPathGuard): readonly PreprocessedVideo[] => {
   const wrapped = readField(body, 'videos');
   return decodePreprocessedVideoList(wrapped === undefined ? body : wrapped, guard);
+};
+
+/** The `enabled` flag of the auto-queue and auto-play routes, or null if absent. */
+const readEnabled = (body: unknown): boolean | null => {
+  const enabled = readField(body, 'enabled');
+  return typeof enabled === 'boolean' ? enabled : null;
 };
 
 const readMessage = (body: unknown): string | null => {
@@ -120,6 +127,77 @@ export const createPlayerRouter = ({
     HTTP_ROUTES.detailedStats,
     asyncHandler(async (_request, response) => {
       response.json(await service.getDetailedStats());
+    }),
+  );
+
+  router.post(
+    HTTP_ROUTES.startIndex,
+    asyncHandler(async (_request, response) => {
+      await service.startIndex();
+      response.json(ACKNOWLEDGED);
+    }),
+  );
+
+  router.post(
+    HTTP_ROUTES.startQueue,
+    asyncHandler(async (_request, response) => {
+      await service.startQueue();
+      response.json(ACKNOWLEDGED);
+    }),
+  );
+
+  router.post(
+    HTTP_ROUTES.autoQueue,
+    asyncHandler(async (request, response) => {
+      const enabled = readEnabled(request.body);
+      if (enabled === null) {
+        sendBadRequest(response, 'expected { enabled: boolean }');
+        return;
+      }
+      await service.setAutoQueue(enabled);
+      response.json(ACKNOWLEDGED);
+    }),
+  );
+
+  router.post(
+    HTTP_ROUTES.autoPlay,
+    asyncHandler(async (request, response) => {
+      const enabled = readEnabled(request.body);
+      if (enabled === null) {
+        sendBadRequest(response, 'expected { enabled: boolean }');
+        return;
+      }
+      await service.setAutoPlay(enabled);
+      response.json(ACKNOWLEDGED);
+    }),
+  );
+
+  router.get(
+    HTTP_ROUTES.settings,
+    asyncHandler(async (_request, response) => {
+      response.json(await service.getEditableConfig());
+    }),
+  );
+
+  // Anyone holding the access token can already drive the player; this also
+  // lets them change what it plays from, which is the point of the panel.
+  // The token itself is the one field a save cannot touch.
+  router.post(
+    HTTP_ROUTES.settings,
+    asyncHandler(async (request, response) => {
+      const patch: unknown = request.body;
+      if (!isPlainObject(patch)) {
+        sendBadRequest(response, 'expected an object of changed settings');
+        return;
+      }
+      response.json(await service.saveConfig(patch));
+    }),
+  );
+
+  router.get(
+    HTTP_ROUTES.recentLog,
+    asyncHandler(async (_request, response) => {
+      response.json(await service.getRecentLog());
     }),
   );
 

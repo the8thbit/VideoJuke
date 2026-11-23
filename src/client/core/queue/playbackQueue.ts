@@ -29,6 +29,12 @@ export interface PlaybackQueue {
   readonly takeNext: () => QueuedVideo | null;
   /** Returns false when the video is already queued. */
   readonly pushFront: (video: QueuedVideo) => boolean;
+  /**
+   * Drops everything after the first `keep` entries, and anything a fill in
+   * flight was about to add. Used when the server has built a fresh batch under
+   * new settings: the videos already queued here were made under the old ones.
+   */
+  readonly truncate: (keep: number) => number;
   readonly size: () => number;
   /** The queue as the server stores it, for resuming after a restart. */
   readonly snapshot: () => readonly PreprocessedVideo[];
@@ -81,8 +87,15 @@ export const createPlaybackQueue = (deps: PlaybackQueueDeps): PlaybackQueue => {
   // Fills come from four directions (startup, a dequeue, the monitor, the
   // shell); only one may be talking to the server at a time.
   const fillTask = createExclusiveTask();
-  const crossfadeSettings = toCrossfadeSettings(config);
-  const capacity = config.video.playbackQueueSize;
+  // A function rather than a constant: `config` reads through to the latest
+  // settings, and the queue size is one of the things the options panel edits.
+  const capacity = (): number => config.video.playbackQueueSize;
+  /**
+   * Bumped by `truncate`. A fill that took a video from the server before the
+   * bump is holding one from the old batch, and must not append it after the
+   * truncation has made room for the new one.
+   */
+  let epoch = 0;
 
   let probeElement: HTMLVideoElement | null = null;
   let pendingFill: ReturnType<typeof setTimeout> | null = null;
@@ -174,6 +187,7 @@ export const createPlaybackQueue = (deps: PlaybackQueueDeps): PlaybackQueue => {
       if (disposed) return;
       if (onProgress !== null) onProgress({ current: size(), target });
 
+      const takenIn = epoch;
       const taken = await attemptAsync(() => api.takeNextVideo());
       if (!taken.ok) {
         logger.warn(`could not take a video from the server - ${taken.error.message}`);
@@ -205,11 +219,15 @@ export const createPlaybackQueue = (deps: PlaybackQueueDeps): PlaybackQueue => {
         continue;
       }
       consecutiveUnplayable = 0;
+      if (takenIn !== epoch) {
+        logger.debug(`discarding ${video.filename}: it was made under the old settings`);
+        continue;
+      }
 
       // Timing is normally computed while transcoding; this fills it in for
       // entries that were cached before the server started doing so.
       const queued: QueuedVideo = {
-        video: withCrossfadeTiming(video, crossfadeSettings),
+        video: withCrossfadeTiming(video, toCrossfadeSettings(config)),
         origin: 'queue',
       };
       state.update((previous) => previous.concat([queued]));
@@ -220,7 +238,7 @@ export const createPlaybackQueue = (deps: PlaybackQueueDeps): PlaybackQueue => {
   };
 
   const fill = async (target?: number): Promise<void> => {
-    await fillTask.runExclusive(() => fillTo(target ?? capacity, null));
+    await fillTask.runExclusive(() => fillTo(target ?? capacity(), null));
   };
 
   const scheduleFill = (delayMs: number): void => {
@@ -276,7 +294,7 @@ export const createPlaybackQueue = (deps: PlaybackQueueDeps): PlaybackQueue => {
 
       logger.info(`playback queue ready with ${ready} video${ready === 1 ? '' : 's'}`);
       // The rest of the queue is built behind the first video.
-      if (ready < capacity) scheduleFill(config.timeouts.backgroundFillDelay);
+      if (ready < capacity()) scheduleFill(config.timeouts.backgroundFillDelay);
       return true;
     },
 
@@ -294,7 +312,7 @@ export const createPlaybackQueue = (deps: PlaybackQueueDeps): PlaybackQueue => {
       const remaining = size();
       logger.debug(`dequeued ${head.video.filename} (${remaining} left)`);
 
-      if (remaining < capacity) scheduleFill(config.timeouts.queueRefillDelay);
+      if (remaining < capacity()) scheduleFill(config.timeouts.queueRefillDelay);
       return head;
     },
 
@@ -307,11 +325,21 @@ export const createPlaybackQueue = (deps: PlaybackQueueDeps): PlaybackQueue => {
 
       // A little slack over capacity is fine; a queue that keeps growing every
       // time the viewer goes back is not.
-      const maximum = capacity + Math.floor(capacity * OVER_CAPACITY_FRACTION);
+      const maximum = capacity() + Math.floor(capacity() * OVER_CAPACITY_FRACTION);
       const next = [video, ...current];
       state.set(next.length > maximum ? next.slice(0, maximum) : next);
       logger.debug(`re-queued ${video.video.filename} (${size()} total)`);
       return true;
+    },
+
+    truncate: (keep) => {
+      epoch += 1;
+      const current = state.get();
+      if (current.length <= keep) return 0;
+      state.set(current.slice(0, Math.max(0, keep)));
+      const dropped = current.length - size();
+      logger.info(`dropped ${dropped} queued videos made under the old settings`);
+      return dropped;
     },
 
     size,
@@ -323,8 +351,8 @@ export const createPlaybackQueue = (deps: PlaybackQueueDeps): PlaybackQueue => {
       stopMonitoring();
       monitorTimer = setInterval(() => {
         const current = size();
-        if (current >= capacity) return;
-        logger.debug(`playback queue below target (${current}/${capacity})`);
+        if (current >= capacity()) return;
+        logger.debug(`playback queue below target (${current}/${capacity()})`);
         void fill();
       }, config.timeouts.queueMonitorInterval);
       return stopMonitoring;

@@ -1,6 +1,7 @@
 import type { ClientConfig } from './config';
 import type { LogEntry } from './logging';
-import type { DetailedStats, InitializationState, ServiceStatus } from './status';
+import type { ConfigPatch, ConfigSaveResult, EditableConfig, LogRecord } from './settings';
+import type { DetailedStats, PipelineState, ServiceStatus } from './status';
 import type { PlayableVideo, PreprocessedVideo } from './video';
 
 /** Cancels a subscription created with {@link PlayerApi.subscribe}. */
@@ -54,7 +55,7 @@ export interface LeaderSnapshot {
 
 /** Pushed from the server to every connected client. */
 export type ServerEvent =
-  | { readonly type: 'initialization'; readonly state: InitializationState }
+  | { readonly type: 'pipeline'; readonly state: PipelineState }
   | { readonly type: 'log'; readonly entry: LogEntry }
   /**
    * Only ever an early wake-up. Followers poll regardless, because the webOS
@@ -72,6 +73,27 @@ export interface PlayerApi {
   readonly getConfig: () => Promise<ClientConfig>;
   readonly getStatus: () => Promise<ServiceStatus>;
   readonly getDetailedStats: () => Promise<DetailedStats>;
+
+  /**
+   * The start screen's three steps. Index and queue are asked of the server,
+   * which runs them in the background and reports through `getStatus` and the
+   * `pipeline` event; play is the client's own business.
+   */
+  readonly startIndex: () => Promise<void>;
+  readonly startQueue: () => Promise<void>;
+  /**
+   * This session's auto-queue and auto-play. The `startup` settings are only
+   * where each new session starts from, so changing these leaves them alone.
+   */
+  readonly setAutoQueue: (enabled: boolean) => Promise<void>;
+  readonly setAutoPlay: (enabled: boolean) => Promise<void>;
+
+  /** The settings as the options panel shows them. */
+  readonly getEditableConfig: () => Promise<EditableConfig>;
+  /** Saves the changed fields; a refused save writes nothing at all. */
+  readonly saveConfig: (patch: ConfigPatch) => Promise<ConfigSaveResult>;
+  /** Recent warnings and errors, for the log under the options panel. */
+  readonly getRecentLog: () => Promise<readonly LogRecord[]>;
 
   /** Takes the next transcoded video out of the server-side queue. */
   readonly takeNextVideo: () => Promise<PlayableVideo | null>;
@@ -118,6 +140,13 @@ export const IPC_CHANNELS = {
   getConfig: 'player:get-config',
   getStatus: 'player:get-status',
   getDetailedStats: 'player:get-detailed-stats',
+  startIndex: 'player:start-index',
+  startQueue: 'player:start-queue',
+  setAutoQueue: 'player:set-auto-queue',
+  setAutoPlay: 'player:set-auto-play',
+  getEditableConfig: 'player:get-editable-config',
+  saveConfig: 'player:save-config',
+  getRecentLog: 'player:get-recent-log',
   takeNextVideo: 'player:take-next-video',
   takePreviousVideo: 'player:take-previous-video',
   ensurePlayable: 'player:ensure-playable',
@@ -141,6 +170,13 @@ export const HTTP_ROUTES = {
   config: '/api/config',
   status: '/api/status',
   detailedStats: '/api/detailed-stats',
+  startIndex: '/api/pipeline/index',
+  startQueue: '/api/pipeline/queue',
+  autoQueue: '/api/pipeline/auto-queue',
+  autoPlay: '/api/pipeline/auto-play',
+  /** GET reads the editable settings, POST saves a patch. */
+  settings: '/api/settings',
+  recentLog: '/api/log',
   nextVideo: '/api/next-video',
   previousVideo: '/api/previous-video',
   ensurePlayable: '/api/ensure-playable',

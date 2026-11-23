@@ -25,6 +25,10 @@ export interface PlayerElements {
   readonly startButton: HTMLButtonElement | null;
   /** Present only in the browser client. */
   readonly connectionStatus: HTMLElement | null;
+  /** The start screen, which is also the options panel opened over a video. */
+  readonly optionsPanel: HTMLElement;
+  /** Explains a settings change that is still being worked in. */
+  readonly updateBanner: HTMLElement;
 }
 
 export interface DebugFields {
@@ -88,6 +92,8 @@ export const queryPlayerElements = (root: Document): PlayerElements => ({
   debugFields: queryDebugFields(root),
   startButton: findElement<HTMLButtonElement>(root, 'startButton'),
   connectionStatus: findElement(root, 'connectionStatus'),
+  optionsPanel: requireElement(root, 'optionsPanel'),
+  updateBanner: requireElement(root, 'updateBanner'),
 });
 
 /** Toggles a class, returning whether the element now has it. */

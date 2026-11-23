@@ -12,6 +12,7 @@ import {
   type Unsubscribe,
 } from '../../../shared/types/protocol';
 import { attempt, attemptAsync } from '../../../shared/types/result';
+import type { ConfigSaveResult, EditableConfig, LogRecord } from '../../../shared/types/settings';
 import type { DetailedStats, ServiceStatus } from '../../../shared/types/status';
 import type { PlayableVideo } from '../../../shared/types/video';
 import { removeAt } from '../../../shared/util/arrays';
@@ -206,7 +207,7 @@ const parseServerEvent = (raw: unknown): ServerEvent | null => {
 
   const payload = parsed.value;
   const type = readProperty(payload, 'type');
-  if (type === 'initialization' && isPlainObject(readProperty(payload, 'state'))) {
+  if (type === 'pipeline' && isPlainObject(readProperty(payload, 'state'))) {
     return payload as ServerEvent;
   }
   if (type === 'log' && isPlainObject(readProperty(payload, 'entry'))) {
@@ -435,6 +436,17 @@ export const createHttpTransport = (options: HttpTransportOptions): HttpTranspor
     getStatus: async () => readJson<ServiceStatus>(await send('GET', HTTP_ROUTES.status)),
     getDetailedStats: async () =>
       readJson<DetailedStats>(await send('GET', HTTP_ROUTES.detailedStats)),
+
+    startIndex: () => command(HTTP_ROUTES.startIndex, {}),
+    startQueue: () => command(HTTP_ROUTES.startQueue, {}),
+    setAutoQueue: (enabled) => command(HTTP_ROUTES.autoQueue, { enabled }),
+    setAutoPlay: (enabled) => command(HTTP_ROUTES.autoPlay, { enabled }),
+    getEditableConfig: async () =>
+      readJson<EditableConfig>(await send('GET', HTTP_ROUTES.settings)),
+    saveConfig: async (patch) =>
+      readJson<ConfigSaveResult>(await send('POST', HTTP_ROUTES.settings, patch)),
+    getRecentLog: async () =>
+      readJson<readonly LogRecord[]>(await send('GET', HTTP_ROUTES.recentLog)),
 
     takeNextVideo: async () =>
       readOptionalJson<PlayableVideo>(await send('GET', HTTP_ROUTES.nextVideo)),

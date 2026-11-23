@@ -8,7 +8,9 @@ import type {
   ConfigIssue,
   CpuLimitingConfig,
   CrossfadeConfig,
+  DirectoryConfig,
   FilesConfig,
+  LengthBiasConfig,
   LoudnessTarget,
   NetworkConfig,
   NormalizationConfig,
@@ -17,7 +19,9 @@ import type {
   PlaybackConfig,
   RetriesConfig,
   SeasonalDirectoryConfig,
+  SelectionConfig,
   ServerNetworkConfig,
+  StartupConfig,
   StereoUpmixingConfig,
   SystemConfig,
   TimeoutsConfig,
@@ -26,6 +30,7 @@ import type {
 } from '../types/config';
 import {
   AUDIO_CODEC_NAMES,
+  LENGTH_BIAS_DIRECTIONS,
   LOG_LEVEL_NAMES,
   NORMALIZATION_PRESET_NAMES,
   PERFORMANCE_MODES,
@@ -126,6 +131,14 @@ const PLAYBACK_RATE: NumberOptions = { min: 0.0625, max: 16 };
 const LOUDNESS_TARGET: NumberOptions = { min: -70, max: -5 };
 const TRUE_PEAK: NumberOptions = { min: -9, max: 0 };
 const LOUDNESS_RANGE: NumberOptions = { min: 1, max: 50 };
+/**
+ * A directory's share of the picks. Zero is allowed and means "only once
+ * nothing else is left"; the ceiling only stops a typo from starving every
+ * other directory to the point of never being seen.
+ */
+const DIRECTORY_BIAS: NumberOptions = { min: 0, max: 1000 };
+/** 1 is no bias at all; past a thousand the long end is never seen anyway. */
+const LENGTH_BIAS_RATIO: NumberOptions = { min: 1, max: 1000 };
 
 const readServerNetwork = (source: RawField, base: ServerNetworkConfig): ServerNetworkConfig => {
   const pick = openSection(source);
@@ -424,6 +437,55 @@ const readPlayback = (source: RawField, base: PlaybackConfig): PlaybackConfig =>
   };
 };
 
+/**
+ * One regular directory: a bare path, or `{ directory, bias }`.
+ *
+ * The bare string is what every config file written before biases existed
+ * contains, and it stays the natural spelling for the common case, so it is
+ * read as a bias of 1 rather than reported.
+ */
+const readDirectoryEntry = (context: DecodeContext, value: unknown): DirectoryConfig | null => {
+  if (typeof value === 'string') {
+    if (value.trim() !== '') return { directory: value, bias: 1 };
+    context.report('warning', 'ignoring an empty directory');
+    return null;
+  }
+  if (!isPlainObject(value)) {
+    context.report('warning', 'ignoring a directory that is neither a path nor an object');
+    return null;
+  }
+
+  const pick = openSection({ context, value });
+  const directory = pick('directory').value;
+  if (typeof directory !== 'string' || directory.trim() === '') {
+    context.report('warning', 'ignoring a directory entry with no directory');
+    return null;
+  }
+  return { directory, bias: num(pick('bias'), 1, DIRECTORY_BIAS) };
+};
+
+const readLengthBias = (source: RawField, base: LengthBiasConfig): LengthBiasConfig => {
+  const pick = openSection(source);
+  return {
+    enabled: bool(pick('enabled'), base.enabled),
+    favor: choice(pick('favor'), LENGTH_BIAS_DIRECTIONS, base.favor),
+    maxRatio: num(pick('maxRatio'), base.maxRatio, LENGTH_BIAS_RATIO),
+  };
+};
+
+const readSelection = (source: RawField, base: SelectionConfig): SelectionConfig => {
+  const pick = openSection(source);
+  return { lengthBias: readLengthBias(pick('lengthBias'), base.lengthBias) };
+};
+
+const readStartup = (source: RawField, base: StartupConfig): StartupConfig => {
+  const pick = openSection(source);
+  return {
+    autoQueueAfterIndex: bool(pick('autoQueueAfterIndex'), base.autoQueueAfterIndex),
+    autoPlayAfterQueue: bool(pick('autoPlayAfterQueue'), base.autoPlayAfterQueue),
+  };
+};
+
 const readSeasonalDirectory = (
   context: DecodeContext,
   value: unknown,
@@ -476,7 +538,12 @@ export const normalizeConfig = (
   const pick = openSection({ context: collector.context, value: raw });
 
   const directoriesField = pick('directories');
-  const directories = strings(directoriesField, base.directories);
+  const directories = readArray(
+    directoriesField.context,
+    directoriesField.value,
+    readDirectoryEntry,
+    base.directories,
+  );
   if (directories.length === 0) {
     directoriesField.context.report('error', 'no video directories are configured');
   }
@@ -490,6 +557,8 @@ export const normalizeConfig = (
       readSeasonalDirectory,
       base.seasonalDirectories,
     ),
+    selection: readSelection(pick('selection'), base.selection),
+    startup: readStartup(pick('startup'), base.startup),
     network: readNetwork(pick('network'), base.network),
     video: readVideo(pick('video'), base.video),
     performance: readPerformance(pick('performance'), base.performance),

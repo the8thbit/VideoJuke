@@ -70,6 +70,8 @@ const start = async (): Promise<void> => {
     target: document,
     dispatch: app.dispatch,
     logger: logger.child('keyboard'),
+    // While the options panel is open its fields need the keys.
+    isSuspended: app.isPanelOpen,
   });
 
   // `stop` mirrors the playback queue to the server one last time, which is

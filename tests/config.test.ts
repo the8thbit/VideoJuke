@@ -83,7 +83,7 @@ describe('normalizeConfig', () => {
       video: { preprocessedQueueSize: 7 },
     });
 
-    assert.deepEqual(config.directories, ['/videos']);
+    assert.deepEqual(config.directories, [{ directory: '/videos', bias: 1 }]);
     assert.equal(config.video.preprocessedQueueSize, 7);
     assert.equal(config.video.playbackQueueSize, DEFAULT_CONFIG.video.playbackQueueSize);
     assert.deepEqual(config.audio, DEFAULT_CONFIG.audio);

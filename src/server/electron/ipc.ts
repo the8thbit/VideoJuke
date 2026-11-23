@@ -2,7 +2,9 @@ import { ipcMain } from 'electron';
 
 import type { Logger } from '../../shared/types/logging';
 import { IPC_CHANNELS, type IpcChannel, type ServerEvent } from '../../shared/types/protocol';
+import type { ConfigPatch } from '../../shared/types/settings';
 import type { PreprocessedVideo } from '../../shared/types/video';
+import { isPlainObject } from '../../shared/util/objects';
 import type { PlayerService } from '../api/playerService';
 import type { Session } from '../domain/session';
 import { decodeLeaderPublication } from '../domain/leaderPublication';
@@ -22,6 +24,12 @@ export interface PlayerIpcOptions {
 type ChannelHandler = (payload: unknown) => Promise<unknown>;
 
 type Registration = readonly [IpcChannel, ChannelHandler];
+
+/**
+ * A settings patch is checked field by field when it is laid over config.json,
+ * so all this has to establish is that it is an object at all.
+ */
+const readPatch = (payload: unknown): ConfigPatch => (isPlainObject(payload) ? payload : {});
 
 /** Whatever the renderer sends for a message, reduced to something printable. */
 const readErrorMessage = (payload: unknown): string =>
@@ -99,6 +107,13 @@ export const registerPlayerIpc = (options: PlayerIpcOptions): (() => void) => {
     [IPC_CHANNELS.getConfig, () => service.getConfig()],
     [IPC_CHANNELS.getStatus, () => service.getStatus()],
     [IPC_CHANNELS.getDetailedStats, () => service.getDetailedStats()],
+    [IPC_CHANNELS.startIndex, () => service.startIndex()],
+    [IPC_CHANNELS.startQueue, () => service.startQueue()],
+    [IPC_CHANNELS.setAutoQueue, (payload) => service.setAutoQueue(payload === true)],
+    [IPC_CHANNELS.setAutoPlay, (payload) => service.setAutoPlay(payload === true)],
+    [IPC_CHANNELS.getEditableConfig, () => service.getEditableConfig()],
+    [IPC_CHANNELS.saveConfig, (payload) => service.saveConfig(readPatch(payload))],
+    [IPC_CHANNELS.getRecentLog, () => service.getRecentLog()],
     [IPC_CHANNELS.takeNextVideo, () => service.takeNextVideo()],
     [IPC_CHANNELS.takePreviousVideo, () => service.takePreviousVideo()],
     [IPC_CHANNELS.ensurePlayable, ensurePlayable],
@@ -134,8 +149,8 @@ export const registerPlayerIpc = (options: PlayerIpcOptions): (() => void) => {
     window.send(IPC_CHANNELS.serverEvent, event);
   };
 
-  const unsubscribeInitialization = session.onInitializationChange((state) => {
-    forward({ type: 'initialization', state });
+  const unsubscribePipeline = session.onPipelineChange((state) => {
+    forward({ type: 'pipeline', state });
   });
 
   // Only ever an early wake-up: a follower polls regardless, because the webOS
@@ -153,7 +168,7 @@ export const registerPlayerIpc = (options: PlayerIpcOptions): (() => void) => {
   logger.info(`registered ${registrations.length} IPC handlers`);
 
   return () => {
-    unsubscribeInitialization();
+    unsubscribePipeline();
     unsubscribeLeader();
     unsubscribeLog();
     for (const [channel] of registrations) {

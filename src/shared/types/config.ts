@@ -18,6 +18,28 @@ export const NORMALIZATION_PRESET_NAMES: readonly NormalizationPresetName[] = [
 export const AUDIO_CODEC_NAMES: readonly AudioCodecName[] = ['aac', 'ac3', 'eac3'];
 export const LOG_LEVEL_NAMES: readonly LogLevelName[] = ['debug', 'info', 'warn', 'error'];
 
+/** Which end of the length range the length bias favours. */
+export type LengthBiasDirection = 'shorter' | 'longer';
+export const LENGTH_BIAS_DIRECTIONS: readonly LengthBiasDirection[] = ['shorter', 'longer'];
+
+/**
+ * One regular source directory.
+ *
+ * In config.json an entry may be a bare path, which is a directory with the
+ * neutral bias of 1, or an object naming the bias explicitly.
+ */
+export interface DirectoryConfig {
+  readonly directory: string;
+  /**
+   * Relative weight when choosing which directory the next video comes from.
+   * Directories are chosen first and videos within them second, so when every
+   * directory has the same bias each is equally likely, however many files it
+   * holds. A bias of 2 is twice as likely as a bias of 1. Zero means the
+   * directory is only drawn from once every other one has nothing left.
+   */
+  readonly bias: number;
+}
+
 export interface SeasonalDirectoryConfig {
   /** Absolute or project-relative directory scanned only while conditions hold. */
   readonly directory: string;
@@ -239,12 +261,47 @@ export interface PlaybackConfig {
 }
 
 /**
+ * Tilts selection towards shorter or longer videos.
+ *
+ * The weight is a power of the length, with the exponent chosen so that the
+ * most favoured video in the library is exactly `maxRatio` times as likely as
+ * the least favoured one. A power rather than a straight line because lengths
+ * compare by ratio: one three-hour film would otherwise flatten every
+ * difference between a three-minute and a thirty-minute video.
+ */
+export interface LengthBiasConfig {
+  readonly enabled: boolean;
+  readonly favor: LengthBiasDirection;
+  /** How many times likelier the most favoured length is than the least. */
+  readonly maxRatio: number;
+}
+
+export interface SelectionConfig {
+  readonly lengthBias: LengthBiasConfig;
+}
+
+/**
+ * What the start screen does on its own.
+ *
+ * Nothing is indexed until somebody asks; these two only chain the later steps
+ * onto the earlier ones once they have been asked for.
+ */
+export interface StartupConfig {
+  /** Start preparing the queue as soon as indexing completes. */
+  readonly autoQueueAfterIndex: boolean;
+  /** Start playing as soon as the queue is ready. */
+  readonly autoPlayAfterQueue: boolean;
+}
+
+/**
  * The fully resolved configuration. Every field is present and validated, so
  * consumers never need fallbacks: parsing happens exactly once, at the edge.
  */
 export interface AppConfig {
-  readonly directories: readonly string[];
+  readonly directories: readonly DirectoryConfig[];
   readonly seasonalDirectories: readonly SeasonalDirectoryConfig[];
+  readonly selection: SelectionConfig;
+  readonly startup: StartupConfig;
   readonly network: NetworkConfig;
   readonly video: VideoConfig;
   readonly performance: PerformanceConfig;
@@ -280,3 +337,7 @@ export const toClientConfig = (config: AppConfig): ClientConfig => ({
 
 /** A single problem found while normalising a user config file. */
 export type ConfigIssue = DecodeIssue;
+
+/** The paths of the regular source directories, without their biases. */
+export const directoryPaths = (config: Pick<AppConfig, 'directories'>): readonly string[] =>
+  config.directories.map((entry) => entry.directory);

@@ -288,3 +288,392 @@ body {
 .panel::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.5);
 }
+
+/* Start screen and options panel ----------------------------------------- */
+
+/*
+ * The screen the app boots into, and the same panel opened over a video with
+ * the options key. Above the loading screen so it can be opened while a video
+ * is still waiting for its start button.
+ */
+.options-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 25;
+  overflow-y: auto;
+  background: linear-gradient(135deg, rgba(20, 20, 20, 0.97) 0%, rgba(40, 40, 40, 0.97) 100%);
+  color: #fff;
+}
+
+.options-panel.hidden {
+  display: none;
+}
+
+.options-content {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+}
+
+.options-title {
+  font-size: 28px;
+  font-weight: 600;
+  margin-bottom: 24px;
+}
+
+.options-steps {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.options-step {
+  flex: 1 1 0;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--vj-hairline);
+  border-radius: var(--vj-overlay-radius);
+  padding: 16px;
+}
+
+.options-step-button {
+  width: 100%;
+  padding: 14px 12px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--vj-accent);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.options-step-button:hover:not(:disabled) {
+  background: var(--vj-accent-strong);
+}
+
+.options-step-button:disabled {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--vj-muted);
+  cursor: default;
+}
+
+/* Standing in for an auto toggle: outlined, and filled while it is on. */
+.options-step-button.toggle {
+  background: transparent;
+  border-color: var(--vj-accent);
+  color: var(--vj-label);
+}
+
+.options-step-button.toggle.pressed {
+  background: rgba(59, 130, 246, 0.25);
+  color: #fff;
+}
+
+.options-step-bar {
+  height: 6px;
+  margin: 12px 0 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.options-step-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--vj-success);
+  transition: width 0.3s ease;
+}
+
+.options-step-status {
+  font-size: 13px;
+  color: var(--vj-muted);
+  min-height: 34px;
+  overflow-wrap: anywhere;
+}
+
+.options-step-status.error,
+.options-message.error,
+.options-field-error {
+  color: #f87171;
+}
+
+.options-message {
+  margin: 8px 0 16px;
+  font-size: 14px;
+}
+
+.options-message.hidden,
+.options-issues.hidden {
+  display: none;
+}
+
+.options-extra {
+  margin-bottom: 8px;
+}
+
+.options-heading {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 28px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--vj-hairline-strong);
+}
+
+.options-note,
+.options-hint {
+  font-size: 12px;
+  color: var(--vj-muted);
+  line-height: 1.4;
+}
+
+.options-note {
+  margin-bottom: 12px;
+}
+
+.options-hint {
+  margin-top: 4px;
+}
+
+.options-issues {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(220, 53, 69, 0.15);
+  border: 1px solid rgba(220, 53, 69, 0.5);
+  font-size: 13px;
+}
+
+.options-issues-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.options-issue.warning {
+  color: #fbbf24;
+}
+
+.options-issue.error {
+  color: #f87171;
+}
+
+.options-section {
+  margin-bottom: 8px;
+  border: 1px solid var(--vj-hairline);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.options-section-title {
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.options-section-body {
+  padding: 4px 14px 14px;
+}
+
+.options-group {
+  margin-top: 10px;
+  padding-left: 12px;
+  border-left: 2px solid var(--vj-hairline);
+}
+
+.options-group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vj-label);
+  margin-bottom: 4px;
+}
+
+.options-field {
+  padding: 8px 0;
+}
+
+.options-field.changed .options-label {
+  color: #fbbf24;
+}
+
+.options-field.invalid .options-input,
+.options-field.invalid .options-textarea {
+  border-color: #f87171;
+}
+
+.options-field.boolean .options-checkbox {
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.options-label {
+  display: inline-block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.options-restart {
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  border-radius: 4px;
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.6);
+}
+
+.options-input,
+.options-textarea {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  padding: 6px 8px;
+  font-size: 14px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--vj-hairline-strong);
+  border-radius: 6px;
+}
+
+.options-field.wide .options-textarea {
+  max-width: none;
+}
+
+.options-code {
+  font-family: var(--vj-mono-font);
+  font-size: 13px;
+}
+
+.options-directory {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.options-directory .options-directory-path {
+  flex: 1 1 auto;
+  max-width: none;
+}
+
+.options-directory .options-directory-bias {
+  width: 80px;
+  flex: 0 0 auto;
+}
+
+.options-directory-label {
+  font-size: 12px;
+  color: var(--vj-muted);
+}
+
+.options-button {
+  padding: 8px 14px;
+  font-size: 14px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--vj-hairline-strong);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.options-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.options-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.options-button.options-primary {
+  background: var(--vj-accent);
+  border-color: var(--vj-accent);
+}
+
+.options-small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/*
+ * Sticky, so Save is in reach from anywhere in a long form. The panel itself is
+ * the scroller, which is what sticky positions against.
+ */
+.options-savebar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  background: rgba(30, 30, 30, 0.97);
+  border-top: 1px solid var(--vj-hairline);
+}
+
+.options-save-status {
+  font-size: 13px;
+  color: var(--vj-muted);
+}
+
+.options-log {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  font-family: var(--vj-mono-font);
+  font-size: 12px;
+  line-height: 1.5;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--vj-hairline);
+  border-radius: 8px;
+}
+
+.options-log-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.options-log-line.warn {
+  color: #fbbf24;
+}
+
+.options-log-line.error {
+  color: #f87171;
+}
+
+.options-log-empty {
+  color: var(--vj-muted);
+}
+
+/* A remote has no pointer, so focus has to be unmistakable. */
+.options-panel button:focus,
+.options-panel input:focus,
+.options-panel select:focus,
+.options-panel textarea:focus,
+.options-panel summary:focus {
+  outline: 3px solid #fbbf24;
+  outline-offset: 2px;
+}
+
+/* Settings change banner ------------------------------------------------- */
+
+.update-banner {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  max-width: 80%;
+  padding: 10px 18px;
+  font-size: 14px;
+  color: #fff;
+  background: rgba(37, 99, 235, 0.92);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.update-banner.hidden {
+  display: none;
+}

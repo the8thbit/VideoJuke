@@ -14,6 +14,17 @@ export const DEFAULT_CONFIG: AppConfig = {
   // install and hides the real problem. Startup reports the empty list instead.
   directories: [],
   seasonalDirectories: [],
+  selection: {
+    lengthBias: {
+      enabled: false,
+      favor: 'shorter',
+      maxRatio: 10,
+    },
+  },
+  startup: {
+    autoQueueAfterIndex: false,
+    autoPlayAfterQueue: false,
+  },
   network: {
     server: {
       enabled: true,

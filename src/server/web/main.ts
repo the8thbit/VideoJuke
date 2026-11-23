@@ -179,7 +179,13 @@ const main = async (): Promise<void> => {
     installDirectory,
     directories: config.system,
   });
-  const logging = createServerLogging({ scope: LOG_SCOPE, minLevel: config.system.logLevel });
+  const logging = createServerLogging({
+    scope: LOG_SCOPE,
+    minLevel: config.system.logLevel,
+    // So the options panel's log still shows what was wrong with config.json:
+    // those complaints were made to the bootstrap logging, before this existed.
+    seed: bootstrap.recentProblems(),
+  });
   const logger = logging.logger;
 
   installProcessHandlers(logger);
@@ -284,6 +290,8 @@ const main = async (): Promise<void> => {
     onShutdownRequest: () => {
       void shutdown('a client requested shutdown');
     },
+    settings: configService,
+    recentLog: logging.recentProblems,
   });
 
   const webServer = createHttpServer({
@@ -321,9 +329,8 @@ const main = async (): Promise<void> => {
     logger.info(`auto-open is off, visit ${serverUrl} with your access token to start watching`);
   }
 
-  // Deliberately after listen: indexing and transcoding take minutes, and a
-  // client that connects meanwhile watches the progress over the WebSocket
-  // instead of being refused a connection.
+  // After listen, so a client can connect at once. Starting the session no
+  // longer indexes anything: that waits for the start screen to ask for it.
   await session.start();
 };
 

@@ -164,14 +164,14 @@ export const createHttpServer = (options: HttpServerOptions): HttpServer => {
     logger: logger.child('websocket'),
     authToken: options.authToken,
     initialEvent: (): ServerEvent => ({
-      type: 'initialization',
-      state: session.initialization(),
+      type: 'pipeline',
+      state: session.pipeline(),
     }),
   });
 
   const unsubscribes: readonly (() => void)[] = [
-    session.onInitializationChange((state) => {
-      hub.broadcast({ type: 'initialization', state });
+    session.onPipelineChange((state) => {
+      hub.broadcast({ type: 'pipeline', state });
     }),
     session.onLeaderStateChange((state) => {
       hub.broadcast({ type: 'leader-state', state });

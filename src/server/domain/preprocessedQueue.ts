@@ -36,6 +36,21 @@ export interface PreprocessedQueue {
     onProgress?: (progress: FillProgress) => void,
   ) => Promise<void>;
   readonly takeNext: () => PreprocessedVideo | null;
+  /**
+   * Builds `count` fresh transcodes beside the queue and then swaps them in for
+   * everything it held, which is how a settings change reaches the queue without
+   * interrupting playback. Ordinary fills stand aside while it runs. Resolves to
+   * whether the swap happened.
+   */
+  readonly replaceWithFresh: (
+    count: number,
+    onProgress?: (progress: FillProgress) => void,
+  ) => Promise<boolean>;
+  /**
+   * Bumped by every `replaceWithFresh` swap. Everything a client took before the
+   * bump was chosen under the old settings, which is how it knows to drop them.
+   */
+  readonly batch: () => number;
   readonly size: () => number;
   readonly isFilling: () => boolean;
   readonly snapshot: () => readonly PreprocessedVideo[];
@@ -64,14 +79,27 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
    * because it did not exist yet.
    */
   const generation = createStore(0);
+  /** See `PreprocessedQueue.batch`. */
+  const batch = createStore(0);
+  /** Set while a replacement batch is being built; ordinary fills stand aside. */
+  const replacing = createStore(false);
+  /** The fill in flight, so a replacement can wait for its current transcode. */
+  const activeFill = createStore<Promise<void> | null>(null);
 
   /**
-   * Chooses up to `count` sources to transcode. Both the queued paths and the
-   * ones picked earlier in this same fill are excluded, so a single fill never
-   * transcodes the same file twice.
+   * Chooses up to `count` sources to transcode. The ones picked earlier in this
+   * same call are always excluded, so a single fill never transcodes the same
+   * file twice, and so are the queued ones unless `excludeQueued` is false.
+   *
+   * A fresh batch passes false: the queue it is about to replace is going in
+   * the bin, so its videos are as eligible as any other. Excluding them made a
+   * small library build an empty batch - every video was already queued - and
+   * the new settings never arrived at all.
    */
-  const selectSources = (count: number): readonly IndexedVideo[] => {
-    const excluded = new Set<string>(videos.get().map((video) => video.originalPath));
+  const selectSources = (count: number, excludeQueued = true): readonly IndexedVideo[] => {
+    const excluded = new Set<string>(
+      excludeQueued ? videos.get().map((video) => video.originalPath) : [],
+    );
     const selected: IndexedVideo[] = [];
 
     for (let index = 0; index < count; index += 1) {
@@ -87,12 +115,16 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
     return selected;
   };
 
-  const preprocessOne = async (source: IndexedVideo): Promise<void> => {
+  /**
+   * Transcodes one source, or answers null when it could not be, or when the
+   * queue was cleared while it ran and the result belongs to nothing any more.
+   */
+  const transcodeOne = async (source: IndexedVideo): Promise<PreprocessedVideo | null> => {
     // Indexes outlive the files they describe, so a source can disappear
     // between the scan and the transcode. That is not a preprocessing error.
     if (!(await deps.fileSystem.exists(source.originalPath))) {
       deps.logger.warn(`skipping missing source file: ${source.originalPath}`);
-      return;
+      return null;
     }
 
     const startedAt = generation.get();
@@ -100,17 +132,39 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
     if (!processed.ok) {
       deps.logger.warn(`failed to preprocess ${source.filename}: ${processed.error.message}`);
       deps.onStatsChange({ errors: 1 });
-      return;
+      return null;
     }
 
     if (generation.get() !== startedAt) {
       deps.logger.debug(`discarding ${source.filename}: the queue was cleared while it ran`);
       await deps.fileSystem.remove(processed.value.processedPath);
-      return;
+      return null;
     }
 
-    videos.update((previous) => [...previous, processed.value]);
     deps.onStatsChange({ preprocessed: 1 });
+    return processed.value;
+  };
+
+  const preprocessOne = async (source: IndexedVideo): Promise<void> => {
+    const processed = await transcodeOne(source);
+    if (processed !== null) videos.update((previous) => [...previous, processed]);
+  };
+
+  /** Deletes transcodes nothing will play, checking each path first; see `clear`. */
+  const removeTranscodes = async (discarded: readonly PreprocessedVideo[]): Promise<number> => {
+    // Not everything in this bag was put there by this process: `restore` fills
+    // it from the saved state file, so the paths are only as trustworthy as that
+    // file is. This is one of exactly two places that deletes a file named by a
+    // record rather than by the preprocessor, and both check first.
+    const removable = discarded.filter((video) =>
+      deps.videoPaths.acceptsProcessed(video.processedPath),
+    );
+    const skipped = discarded.length - removable.length;
+    if (skipped > 0) {
+      deps.logger.warn(`left ${skipped} queued files alone: they are outside the temp directory`);
+    }
+    await Promise.all(removable.map((video) => deps.fileSystem.remove(video.processedPath)));
+    return removable.length;
   };
 
   const runFill = async (
@@ -148,6 +202,11 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
         deps.logger.info('abandoning the rest of this fill: the queue was cleared while it ran');
         return;
       }
+      // Everything this fill would add is about to be swapped out.
+      if (replacing.get()) {
+        deps.logger.info('abandoning the rest of this fill: a fresh batch is being built');
+        return;
+      }
       await preprocessOne(source);
       onProgress?.({ current: videos.get().length, target });
     }
@@ -159,9 +218,71 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
     targetSize?: number,
     onProgress?: (progress: FillProgress) => void,
   ): Promise<void> => {
+    // A batch built under the new settings is about to replace the queue, and
+    // anything added now would only be thrown away with it.
+    if (replacing.get()) {
+      deps.logger.debug('skipping a fill: a fresh batch is being built');
+      return;
+    }
     // Overlapping fills would select against a stale exclusion set and
     // transcode the same file twice; the exclusive task makes them impossible.
-    await filling.runExclusive(() => runFill(targetSize, onProgress));
+    const running = filling.runExclusive(() => runFill(targetSize, onProgress));
+    const settled = running.then(() => undefined);
+    activeFill.set(settled);
+    try {
+      await settled;
+    } finally {
+      if (activeFill.get() === settled) activeFill.set(null);
+    }
+  };
+
+  const replaceWithFresh = async (
+    count: number,
+    onProgress?: (progress: FillProgress) => void,
+  ): Promise<boolean> => {
+    replacing.set(true);
+    try {
+      // A fill already under way finishes the transcode it is on and then
+      // stops; `runFill` checks `replacing` between sources.
+      const running = activeFill.get();
+      if (running !== null) await running.catch(() => undefined);
+
+      const swapped = await filling.runExclusive(async (): Promise<boolean> => {
+        const startedAt = generation.get();
+        const sources = selectSources(count, false);
+        const staged: PreprocessedVideo[] = [];
+        deps.logger.info(`building a fresh batch of ${sources.length} videos`);
+        onProgress?.({ current: 0, target: sources.length });
+
+        for (const source of sources) {
+          if (generation.get() !== startedAt) break;
+          const processed = await transcodeOne(source);
+          if (processed !== null) staged.push(processed);
+          onProgress?.({ current: staged.length, target: sources.length });
+        }
+
+        // A clear or a restore while this ran abandoned the index it was built
+        // against, exactly as it abandons an ordinary fill.
+        if (generation.get() !== startedAt || staged.length === 0) {
+          await removeTranscodes(staged);
+          deps.logger.warn('the fresh batch was abandoned; keeping the current queue');
+          return false;
+        }
+
+        const discarded = videos.get();
+        videos.set(staged);
+        generation.update((previous) => previous + 1);
+        batch.update((previous) => previous + 1);
+        const removed = await removeTranscodes(discarded);
+        deps.logger.info(
+          `swapped in a fresh batch of ${staged.length} videos, ${removed} older transcodes removed`,
+        );
+        return true;
+      });
+      return swapped === true;
+    } finally {
+      replacing.set(false);
+    }
   };
 
   const takeNext = (): PreprocessedVideo | null => {
@@ -220,20 +341,8 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
     videos.set([]);
     generation.update((previous) => previous + 1);
 
-    // Not everything in this bag was put there by this process: `restore` fills
-    // it from the saved state file, so the paths are only as trustworthy as that
-    // file is. This is one of exactly two places that deletes a file named by a
-    // record rather than by the preprocessor, and both check first.
-    const removable = discarded.filter((video) =>
-      deps.videoPaths.acceptsProcessed(video.processedPath),
-    );
-    const skipped = discarded.length - removable.length;
-    if (skipped > 0) {
-      deps.logger.warn(`left ${skipped} queued files alone: they are outside the temp directory`);
-    }
-
-    await Promise.all(removable.map((video) => deps.fileSystem.remove(video.processedPath)));
-    deps.logger.info(`cleared preprocessed queue: ${removable.length} files removed`);
+    const removed = await removeTranscodes(discarded);
+    deps.logger.info(`cleared preprocessed queue: ${removed} files removed`);
   };
 
   const ensurePlayable = async (video: PreprocessedVideo): Promise<PreprocessedVideo | null> => {
@@ -261,6 +370,8 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
   return {
     fill,
     takeNext,
+    replaceWithFresh,
+    batch: batch.get,
     size: () => videos.get().length,
     isFilling: () => filling.isRunning(),
     snapshot: () => videos.get(),

@@ -83,9 +83,12 @@ const runSession = (
       startMode: 'immediate',
       role: toScreenRole(address.role),
       onExit: exitApp,
+      // The "Change server" button in the options panel.
       onShowSettings: () => {
         finish(ok(undefined));
       },
+      // A remote has a direction pad and no Tab key.
+      arrowNavigation: true,
     });
 
     detachRemote = attachRemoteControls({
@@ -97,6 +100,8 @@ const runSession = (
         app.dispatch('toggle-controls');
       },
       logger: logger.child('remote'),
+      // The direction pad and OK belong to the options panel while it is open.
+      isSuspended: app.isPanelOpen,
     });
 
     void app.start().then((started) => {

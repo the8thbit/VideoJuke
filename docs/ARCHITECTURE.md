@@ -62,16 +62,90 @@ Concretely this means:
 ## Configuration
 
 `config.default.json` is the complete set of defaults. `config.json` holds only
-a user's overrides. They are merged and validated exactly once, at startup, by
+a user's overrides. They are merged and validated by
 `shared/config/normalize.ts`, which produces an `AppConfig` where every field is
-present and in range, plus a list of `ConfigIssue`s to log.
+present and in range, plus a list of `ConfigIssue`s to log. That happens at
+startup and again whenever `config.json` changes, by hand or from the options
+panel; nothing reads the raw file anywhere else.
 
 Downstream code therefore reads `config.video.preprocessedQueueSize` directly.
 The old `config?.a?.b ?? fallback` pattern is a bug, not a style choice: it
 scatters defaults across dozens of call sites where they silently drift apart.
 
 Clients receive `ClientConfig`, a `Pick` of the sections they actually need;
-directory listings and ffmpeg tuning never leave the server.
+directory listings and ffmpeg tuning never leave the server. A client reads its
+config through getters over the latest copy, and refetches it when the
+`configRevision` in the status poll moves, so a setting saved mid-video applies
+to the next crossfade without a reload.
+
+### Saving from the options panel
+
+The panel sends a patch of only the fields the viewer changed, nested as in
+`config.json`. `shared/config/patch.ts` lays it over the file's raw JSON, not
+over the merged config, so the file keeps holding overrides only: comments,
+unknown keys and untouched fields survive, a legacy spelling of a written field
+is removed, and `network.server.authToken` is never written. The result is
+normalised before anything is written, and a save whose touched fields would
+need correcting is refused whole. `requiresRestart` names the fields only read
+at startup, which the panel marks.
+
+`shared/config/changeImpact.ts` then classifies the change as `none`,
+`requeue` (it changes what gets picked or how it is transcoded) or `reindex`
+(it changes the library itself). The session upgrades a requeue to a re-index
+when the index is stale, or when the length bias needs lengths it has not
+measured.
+
+## Startup pipeline
+
+The server indexes nothing until asked. `server/domain/session.ts` holds two
+steps, `index` and `queue`, each idle, running, done or failed, and publishes
+them as `PipelineState` (the `pipeline` WebSocket event, and `/api/status`).
+The queue step is done once `min(3, preprocessedQueueSize)` videos are ready;
+it keeps filling in the background after that.
+
+Auto queue and auto play are flags on the session, seeded from
+`config.startup` when the session starts and changed only by the buttons. A
+config change never touches them, which is the difference between "this
+session" and "every new session". The server acts on auto queue; auto play is
+acted on by each client, since only a client can play.
+
+## Settings that change mid-video
+
+A requeue or re-index never stops playback. The session:
+
+1. re-scans in the background, or measures missing lengths, if the change
+   needs it;
+2. transcodes a fresh batch under the new settings and swaps it in for the
+   server's queue in one step (`preprocessedQueue.replaceWithFresh`), with
+   videos already queued eligible again so a small library cannot come up
+   empty;
+3. bumps the queue's batch number, reported as `queueGeneration`.
+
+A client that sees the number move keeps the next two videos it already holds
+(`playbackQueue.truncate(2)`), drops the rest, and refills from the fresh
+batch. The truncate bumps an epoch, so a fill already in flight cannot append a
+video taken from the old batch. While this runs, `PipelineState.update` drives
+the banner: 2 to 3 videos for a requeue, 3 to 10 for a re-index.
+
+Requests that arrive while one is running are coalesced into one more pass at
+the strongest level asked for.
+
+## Selection
+
+Picking is two-stage (`shared/queue/selection.ts`): a directory weighted by its
+bias among directories that still have an eligible video, then a video within
+it. Directory first is what makes equal biases mean equal chances whatever the
+directory sizes. A video belongs to the deepest configured directory that holds
+it (`toDirectoryCandidates`). A bias of 0 is weight zero, and `pickWeighted`
+only falls back to an even pick when every weight is zero, which is how a zero
+bias becomes a last resort.
+
+The length bias (`shared/queue/lengthBias.ts`) weights the video stage only, so
+it cannot disturb directory shares. The weight is a power law, `(longest /
+length)^k` with `k = ln(maxRatio) / ln(longest / shortest)`, which puts exactly
+`maxRatio` between the ends and is a straight line on a log scale. Lengths come
+from ffprobe during indexing and are cached with the index; an unknown length
+gets `sqrt(maxRatio)`, the geometric middle.
 
 ## What the server will act on
 
@@ -178,8 +252,8 @@ source directory, which is the obvious place to put it.
 ## Testing
 
 `tests/` holds `node:test` suites for the pure core — config normalisation,
-time conditions, audio filter construction, crossfade timing, history and
-selection. They run without ffmpeg, a browser, or a filesystem:
+patching and change impact, time conditions, audio filter construction,
+crossfade timing, history, selection and its biases. They run without ffmpeg, a browser, or a filesystem:
 `npm test`.
 
 ## Build

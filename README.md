@@ -11,6 +11,8 @@ VideoJuke supports two deployment modes:
 ## Features
 
 - **Random Video Playback**: Continuously plays videos from multiple configured directories
+- **Selection Biases**: Weight each directory, and tilt picks towards shorter or longer videos
+- **Start Screen & Options Panel**: Index, queue and play on request, and edit every setting from the player, even mid-video
 - **Smart Preprocessing**: Audio normalization and format optimization for smooth playback
 - **Crossfade Transitions**: Smooth blending between videos with configurable timing
 - **Dual-Layer History**: Recent playback history + long-term persistence for navigation
@@ -125,7 +127,51 @@ npm run dev:web
    because a TV app runs from `file://`. Add an origin only if you have written
    your own client for it.
 
-4. **Restart**: Restart VideoJuke to scan your video directories
+4. **Index, queue, play**: VideoJuke no longer scans anything the moment it
+   starts. It opens on the start screen described in
+   [Start Screen and Options](#start-screen-and-options); press **Index**,
+   then **Queue**, then **Play**. Directories can also be added there instead of
+   in `config.json`.
+
+## Start Screen and Options
+
+Every client opens on the same screen: three steps across the top, every
+setting below them, and the server's recent warnings and errors at the bottom.
+
+- **Index** scans the configured directories. Once it has run it becomes
+  **Re-index**.
+- **Queue** transcodes the first few videos. Until the index is done, the button
+  is an **Auto queue** toggle instead: switch it on and the queue starts by
+  itself as soon as indexing finishes.
+- **Play** builds this screen's playback queue and starts watching. Until the
+  queue is ready it is an **Auto play** toggle, which starts playback as soon as
+  the queue is.
+
+The two toggles belong to the current server session only. The settings
+`startup.autoQueueAfterIndex` and `startup.autoPlayAfterQueue` (both off by
+default) are what each new session starts with; changing them does not touch the
+toggles of the session that is running, and flipping a toggle does not change
+the settings.
+
+Press `O` (or **Blue** on the TV remote) during playback to bring the same panel
+up over the video. Playback carries on while it is open. Saving applies at once,
+except for the fields marked *restart*, which are only read at startup. A change
+that affects what gets picked or how it is transcoded is worked in without
+stopping anything:
+
+1. playback continues throughout;
+2. the library is re-scanned in the background, if the change needs it;
+3. a fresh batch of videos is transcoded under the new settings;
+4. every queued video beyond the next two is dropped;
+5. the fresh batch is queued behind those two.
+
+A banner explains what is happening. A change that only needs a fresh queue (a
+directory bias, the length bias, audio settings) shows up within 2 to 3 videos;
+one that also needs a re-scan (directories, extensions, seasonal entries, or
+switching the length bias on for the first time) within 3 to 10.
+
+Anyone with the access token can use the panel, and so can change which
+directories are played; the token itself can only be changed in `config.json`.
 
 ## Project Structure
 
@@ -233,6 +279,46 @@ without a filesystem, ffmpeg or a browser. See
 `archiveDirectory` is where `npm run archive` moves flagged videos; see
 [Archiving Videos](#archiving-videos). It is never scanned, so it is safe to put
 inside a library.
+
+### Selection
+
+```json
+{
+  "directories": [
+    "D:\Videos\Music",
+    { "directory": "D:\Videos\Shorts", "bias": 2 },
+    { "directory": "D:\Videos\Films", "bias": 0.5 }
+  ],
+  "selection": {
+    "lengthBias": { "enabled": false, "favor": "shorter", "maxRatio": 10 }
+  },
+  "startup": { "autoQueueAfterIndex": false, "autoPlayAfterQueue": false }
+}
+```
+
+**Directory bias.** A directory is chosen first and a video within it second,
+so every directory with the same bias is equally likely, however many videos it
+holds. A bias of 2 is twice as likely as a bias of 1, and 2.3 is 2.3 times as
+likely; a bare path is a bias of 1. A bias of 0 means the directory is only
+drawn from once every other one has nothing left. A video in a directory nested
+inside another configured directory belongs to the inner one.
+
+This changes how a library with several directories behaves: before biases
+existed every video was equally likely, so a large directory came round far
+more often than a small one.
+
+**Length bias.** When enabled, videos are weighted by their length so that one
+end of the library is exactly `maxRatio` times as likely as the other: by
+default the shortest video is 10 times as likely as the longest. Set `favor` to
+`"longer"` to reverse it. Lengths in between are weighted on a log scale, so a
+2-minute video is favoured over a 4-minute one by the same factor as a 30-minute
+video over an hour-long one. Lengths are measured with ffprobe while indexing
+(only while this is enabled) and cached; a video whose length could not be read
+is weighted halfway between the two ends.
+
+**Startup.** `autoQueueAfterIndex` and `autoPlayAfterQueue` set the auto queue
+and auto play toggles each new session starts with; see
+[Start Screen and Options](#start-screen-and-options).
 
 ### Network Configuration (Web Mode)
 
@@ -438,16 +524,28 @@ that may be about to transcode it is not a surprise worth arranging.
 - `T` - Show video title only
 - `Q` - Toggle debug information
 - `?` or `/` - Show keyboard controls help
+- `O` - Open or close the options panel
 
 ### Application
-- `ESC` - Quit application (Electron) / Close tab (Web)
+- `ESC` - Close the options panel over a video; otherwise quit (Electron) / close the tab (Web)
+
+While the options panel is open, the player's other keys are paused so that
+typing into a field cannot skip a video. On the TV the direction pad moves
+between the panel's controls and OK activates them.
 
 ## API Reference (Web Mode)
 
 ### REST Endpoints
 
 - `GET /api/config` - Configuration the client needs
-- `GET /api/status` - Initialization state, queue gauge and video count
+- `GET /api/status` - Index and queue steps, auto toggles, settings-change progress, queue gauge, video count, and the queue batch and settings revision that clients watch for changes
+- `POST /api/pipeline/index` - Start indexing, or re-scan
+- `POST /api/pipeline/queue` - Start preparing the queue (once indexed)
+- `POST /api/pipeline/auto-queue` - `{ "enabled": true }` sets this session's auto queue
+- `POST /api/pipeline/auto-play` - `{ "enabled": true }` sets this session's auto play
+- `GET /api/settings` - The settings as the options panel shows them (access token blanked)
+- `POST /api/settings` - Save the changed fields, nested as in `config.json`; refused whole if any value is invalid
+- `GET /api/log` - Recent warnings and errors
 - `GET /api/detailed-stats` - Full diagnostics behind the debug overlay
 - `GET /api/next-video` - Take the next prepared video (204 when there is none)
 - `GET /api/previous-video` - Take the last played video back out of history
@@ -468,7 +566,7 @@ filename that would escape the temp directory.
 
 One message type, a `ServerEvent` discriminated union:
 
-- `{ "type": "initialization", "state": { ... } }` - Startup progress
+- `{ "type": "pipeline", "state": { ... } }` - Index and queue progress, auto toggles, settings-change banner
 - `{ "type": "log", "entry": { ... } }` - Server log entries
 
 ## Supported Video Formats
@@ -1280,7 +1378,8 @@ ares-launch com.videojuke.player  # Launch it
 
 On first launch the app asks for the address of a machine running
 `npm run web`. Use the arrow keys to move between the fields and OK to confirm.
-The address is remembered, and the blue remote button returns to the form.
+The address is remembered. To return to the form, press the blue button to
+open the options panel and choose **Change server**.
 
 Set `network.server.host` to `0.0.0.0` on the server so the TV can reach it.
 
@@ -1295,7 +1394,7 @@ Set `network.server.host` to `0.0.0.0` on the server so the TV can reach it.
 | Red         | Toggle crossfade |
 | Green       | Toggle blur      |
 | Yellow      | Show video info  |
-| Blue        | Server settings  |
+| Blue        | Options panel    |
 | Back        | Exit             |
 
 ## Build troubleshooting

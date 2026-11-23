@@ -1,4 +1,4 @@
-import type { AppConfig } from '../../shared/types/config';
+import { directoryPaths, type AppConfig } from '../../shared/types/config';
 
 /**
  * Decides whether a path a client handed us is one this server is willing to
@@ -112,7 +112,7 @@ export const createVideoPathGuard = (deps: VideoPathGuardDeps): VideoPathGuard =
   const sourceRoots = (): readonly string[] => {
     const current = deps.config();
     return [
-      ...current.directories,
+      ...directoryPaths(current),
       ...current.seasonalDirectories.map((entry) => entry.directory),
     ];
   };

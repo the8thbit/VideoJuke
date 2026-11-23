@@ -8,6 +8,7 @@ import {
   type ServerEvent,
   type Unsubscribe,
 } from '../../shared/types/protocol';
+import type { ConfigSaveResult, EditableConfig, LogRecord } from '../../shared/types/settings';
 import type { DetailedStats, ServiceStatus } from '../../shared/types/status';
 import type { PlayableVideo } from '../../shared/types/video';
 
@@ -50,6 +51,14 @@ const videojuke: PlayerApi = {
   getConfig: () => invoke<ClientConfig>(IPC_CHANNELS.getConfig),
   getStatus: () => invoke<ServiceStatus>(IPC_CHANNELS.getStatus),
   getDetailedStats: () => invoke<DetailedStats>(IPC_CHANNELS.getDetailedStats),
+
+  startIndex: () => invoke<void>(IPC_CHANNELS.startIndex),
+  startQueue: () => invoke<void>(IPC_CHANNELS.startQueue),
+  setAutoQueue: (enabled) => invoke<void>(IPC_CHANNELS.setAutoQueue, enabled),
+  setAutoPlay: (enabled) => invoke<void>(IPC_CHANNELS.setAutoPlay, enabled),
+  getEditableConfig: () => invoke<EditableConfig>(IPC_CHANNELS.getEditableConfig),
+  saveConfig: (patch) => invoke<ConfigSaveResult>(IPC_CHANNELS.saveConfig, patch),
+  getRecentLog: () => invoke<readonly LogRecord[]>(IPC_CHANNELS.getRecentLog),
 
   takeNextVideo: () => invoke<PlayableVideo | null>(IPC_CHANNELS.takeNextVideo),
   takePreviousVideo: () => invoke<PlayableVideo | null>(IPC_CHANNELS.takePreviousVideo),

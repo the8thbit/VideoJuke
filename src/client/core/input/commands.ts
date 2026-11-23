@@ -30,7 +30,19 @@ export type PlayerCommand =
   | 'toggle-controls'
   | 'stop'
   | 'show-settings'
+  | 'toggle-options'
   | 'exit';
 
 /** Accepts a command from any input source. */
 export type CommandDispatcher = (command: PlayerCommand) => void;
+
+/**
+ * The commands still answered while the options panel is open: the one that
+ * closes it, and the way out. Everything else would act on the video behind
+ * the panel - the arrow keys that move between fields would also skip videos.
+ */
+export const PANEL_COMMANDS: readonly PlayerCommand[] = ['toggle-options', 'exit'];
+
+/** Whether an input source should pass a command on while its owner is suspended. */
+export const isPanelCommand = (command: PlayerCommand): boolean =>
+  PANEL_COMMANDS.indexOf(command) !== -1;

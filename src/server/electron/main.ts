@@ -128,6 +128,8 @@ const bootstrap = async (): Promise<void> => {
     onShutdownRequest: () => {
       app.quit();
     },
+    settings: configService,
+    recentLog: logging.recentProblems,
   });
 
   /**

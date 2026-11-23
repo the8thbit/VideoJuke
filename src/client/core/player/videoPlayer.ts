@@ -223,8 +223,17 @@ export const createVideoPlayer = (deps: VideoPlayerDeps): VideoPlayer => {
    * the guard while the transition it protected was still loading.
    */
   const transition = createExclusiveTask();
-  const blur = createBlurEffect(config.blur);
-  const crossfadeSettings = toCrossfadeSettings(config);
+  // Read through to `config` on every use rather than captured here, so a
+  // radius changed in the options panel applies to the next transition. Only
+  // `enabled` is read once, as the starting state of the toggle.
+  const blur = createBlurEffect({
+    get enabled() {
+      return config.blur.enabled;
+    },
+    get maxAmount() {
+      return config.blur.maxAmount;
+    },
+  });
 
   // Cancellation tokens for work in flight rather than observable state: they
   // say what is running, and nothing outside this module can see them.
@@ -285,14 +294,29 @@ export const createVideoPlayer = (deps: VideoPlayerDeps): VideoPlayer => {
     scheduled = null;
   };
 
+  /**
+   * When to start fading out of a video.
+   *
+   * Worked out here from the video's length and the crossfade settings as they
+   * are now, rather than taken from the timing the server stamped on it when it
+   * transcoded the file: that timing was computed with the settings of the
+   * moment, so a crossfade length changed in the options panel would otherwise
+   * only arrive once every video already transcoded had played through. The
+   * result is identical when nothing has changed, because the server used the
+   * same arithmetic on the same length.
+   */
   const timingFor = (video: QueuedVideo, element: HTMLVideoElement): CrossfadeTiming | null => {
+    const settings = toCrossfadeSettings(config);
+    const fromMetadata = computeCrossfadeTiming(video.video.metadata.duration, settings);
+    if (fromMetadata !== null) return fromMetadata;
+    // A container that reported no length: the element's own duration is what
+    // the legacy player always measured, and the stamped timing - if there is
+    // one - came from somewhere that knew better than either.
     const declared = video.video.crossfadeTiming;
     if (declared !== null) return declared;
-    // A video taken back out of history can arrive without timing; the
-    // element's own duration is what the legacy player always measured.
     return computeCrossfadeTiming(
       isFiniteNumber(element.duration) ? element.duration : null,
-      crossfadeSettings,
+      settings,
     );
   };
 

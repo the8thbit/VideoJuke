@@ -8,11 +8,11 @@ import type {
   Unsubscribe,
 } from '../../../shared/types/protocol';
 import { attemptAsync, err, ok, type Result } from '../../../shared/types/result';
-import type { ServiceStatus } from '../../../shared/types/status';
+import type { PipelineState, ServiceStatus } from '../../../shared/types/status';
 import type { PreprocessedVideo, QueuedVideo } from '../../../shared/types/video';
 import { roundTo } from '../../../shared/util/numbers';
 import type { PlayerElements } from '../dom/elements';
-import type { CommandDispatcher, PlayerCommand } from '../input/commands';
+import { isPanelCommand, type CommandDispatcher, type PlayerCommand } from '../input/commands';
 import {
   createVideoPlayer,
   isTransitionBusyError,
@@ -24,6 +24,7 @@ import { createPlaybackQueue, type PlaybackQueue } from '../queue/playbackQueue'
 import { createConnectionIndicator, type ConnectionState } from '../ui/connectionIndicator';
 import { createDebugPanel, type DebugPanel, type DebugSnapshot } from '../ui/debugPanel';
 import { createLoadingScreen, type LoadingScreen } from '../ui/loadingScreen';
+import { createOptionsPanel, type OptionsPanel } from '../ui/optionsPanel';
 import { createOverlayAnchor, type OverlayAnchor } from '../ui/overlayAnchor';
 import { createOverlays, type Overlays } from '../ui/overlays';
 import {
@@ -66,28 +67,37 @@ export interface PlayerAppOptions {
   /** Provided only where there is a settings screen to return to, i.e. the TV. */
   readonly onShowSettings?: () => void;
   readonly onConnectionChange?: (state: ConnectionState) => void;
+  /** Whether the arrow keys move between the options panel's controls: the TV. */
+  readonly arrowNavigation?: boolean;
 }
 
 export interface PlayerApp {
+  /**
+   * Connects, reads the settings and shows the start screen. Resolves once that
+   * screen is up; playback begins later, from Play or from auto play.
+   */
   readonly start: () => Promise<Result<void, Error>>;
   readonly dispatch: CommandDispatcher;
+  /** Whether the options panel has the keys, so input sources can stand aside. */
+  readonly isPanelOpen: () => boolean;
   readonly stop: () => void;
 }
 
 /**
- * How long the client waits for the server to report itself ready.
- *
- * Only the web client had a deadline; the other two polled forever behind a
- * spinner that never said anything had gone wrong. All three have one now.
+ * How often the server's status is read: the start screen's progress, a
+ * settings change being worked in, and the batch and settings numbers that say
+ * this screen has something to catch up on. The WebSocket pushes the steps
+ * sooner where there is one; this is what the TV, which has none, runs on.
  */
-const STARTUP_TIMEOUT_MS = 60000;
+const STATUS_POLL_INTERVAL_MS = 1500;
 
 /**
- * Transcoded videos the server should have ready before the queue is built.
- * Starting against a nearly empty server queue means the first video plays and
- * the second one is not there yet.
+ * Queued videos kept when the server rebuilds its queue under new settings.
+ * The rest were made under the old ones and are dropped, and the fresh batch
+ * goes in behind these - so a change shows up two or three videos later rather
+ * than a whole queue later, without cutting off what is about to play.
  */
-const MINIMUM_READY_VIDEOS = 3;
+const KEEP_AFTER_SETTINGS_CHANGE = 2;
 
 /**
  * Videos that failed to start, in a row, before the app stops advancing on its
@@ -95,10 +105,6 @@ const MINIMUM_READY_VIDEOS = 3;
  * directory full of broken files produced an endless loop of error toasts.
  */
 const MAX_CONSECUTIVE_FAILURES = 3;
-
-const STARTUP_TIMEOUT_MESSAGE =
-  `The server did not finish starting within ${STARTUP_TIMEOUT_MS / 1000} seconds. ` +
-  'Check the server log, then restart VideoJuke.';
 
 const EMPTY_QUEUE_MESSAGE = 'No videos are available to play. Check the configured directories.';
 
@@ -131,6 +137,7 @@ interface Session {
   readonly debugPanel: DebugPanel;
   readonly player: VideoPlayer;
   readonly queue: PlaybackQueue;
+  readonly panel: OptionsPanel;
 }
 
 interface AppState {
@@ -149,25 +156,43 @@ const INITIAL_STATE: AppState = {
   awaitingGesture: false,
 };
 
-const delay = (milliseconds: number): Promise<void> =>
-  new Promise((resolve) => {
-    setTimeout(() => resolve(), milliseconds);
-  });
-
 const formatSpeed = (speed: number): string => `${roundTo(speed, 2)}x`;
 
 const formatSkip = (seconds: number): string => `${seconds < 0 ? '-' : '+'}${Math.abs(seconds)}s`;
 
 /**
- * Whether there is enough on the server to be worth building a queue against.
- * A server that has stopped transcoding will not produce more by being waited
- * for, so the count it has reached is the count we start with.
+ * A `ClientConfig` that always answers with the latest settings.
+ *
+ * Every module is handed this once, at startup, and reads its fields when it
+ * uses them - so replacing what `read` returns is how a change saved in the
+ * options panel reaches a player that is already running, without tearing it
+ * down mid-video. Getters rather than a mutable object because the settings
+ * themselves stay immutable values: a module that does hold on to a section
+ * holds a consistent one.
  */
-const hasEnoughVideos = (status: ServiceStatus): boolean => {
-  if (status.totalVideos === 0) return false;
-  if (status.preprocessedQueue.current >= MINIMUM_READY_VIDEOS) return true;
-  return !status.isPreprocessing;
-};
+const createLiveConfig = (read: () => ClientConfig): ClientConfig => ({
+  get video() {
+    return read().video;
+  },
+  get timeouts() {
+    return read().timeouts;
+  },
+  get retries() {
+    return read().retries;
+  },
+  get crossfade() {
+    return read().crossfade;
+  },
+  get blur() {
+    return read().blur;
+  },
+  get ui() {
+    return read().ui;
+  },
+  get playback() {
+    return read().playback;
+  },
+});
 
 /**
  * The whole client, minus the three lines of platform glue around it.
@@ -197,15 +222,30 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
   let syncTimer: ReturnType<typeof setInterval> | null = null;
   let cooldownTimer: ReturnType<typeof setTimeout> | null = null;
   let recoveryTimer: ReturnType<typeof setTimeout> | null = null;
+  let statusTimer: ReturnType<typeof setInterval> | null = null;
+  let statusPolling = false;
   let commandBusy = false;
   let startCalled = false;
   let stopped = false;
+  /** The settings as last read from the server; the live config reads this. */
+  let settings: ClientConfig | null = null;
+  /** Set once Play (or auto play) has left the start screen. */
+  let playbackBegun = false;
   /**
-   * Set once startup has ended in a message on the loading screen. Server events
-   * keep arriving afterwards, and `applyInitialization` would paint progress
-   * straight over the reason the viewer is being shown.
+   * Set when Play was pressed in a browser. That press is the gesture the
+   * autoplay policy wants, so the first video starts with sound straight away
+   * instead of waiting behind a second button.
    */
-  let startFailed = false;
+  let resumeOnLoad = false;
+  /**
+   * Set when playing ended back on the start screen with nothing to play. Auto
+   * play would otherwise try again on the very next status poll, and again on
+   * the one after, for as long as the screen was left open.
+   */
+  let autoPlaySuppressed = false;
+  /** The server's queue batch and settings revision as last seen. */
+  let lastGeneration: number | null = null;
+  let lastRevision: number | null = null;
   /** Consecutive recoveries with nothing to show for them; drives the backoff. */
   let recoveryAttempts = 0;
 
@@ -358,10 +398,8 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
       // so the message has to bring it back or it is written out of sight.
       current.loadingScreen.show();
       current.loadingScreen.showError(REPEATED_FAILURE_MESSAGE);
-      // Nothing is advancing any more, so a progress frame arriving from the
-      // server must not paint over the explanation. A later successful start -
-      // the viewer pressing next - clears both in `handleStarted`.
-      startFailed = true;
+      // A later successful start - the viewer pressing next - takes it down
+      // again in `handleStarted`.
       return;
     }
     scheduleRecovery(current);
@@ -423,7 +461,6 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
   const handleStarted = (current: Session, video: QueuedVideo, isFirst: boolean): void => {
     // Something is playing, so nothing needs recovering and nothing has failed.
     cancelRecovery();
-    startFailed = false;
     const previous = state.get();
     // A scheduled crossfade hands over without ending the outgoing video, so
     // this is the only place that video gets reported.
@@ -444,6 +481,11 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
     if (!isFirst) return;
 
     if (previous.awaitingGesture) {
+      if (resumeOnLoad) {
+        resumeOnLoad = false;
+        void resumeAfterPlayPress(current);
+        return;
+      }
       // The frame is loaded and visible behind the loading screen; the browser
       // will not let it make a sound until the viewer asks for it.
       current.loadingScreen.setMessage('Ready to play');
@@ -454,6 +496,31 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
 
     current.loadingScreen.hide();
     indicator.hide();
+  };
+
+  /**
+   * Starts the first video with sound on the strength of the Play press.
+   *
+   * Most browsers count any earlier click on the page; Safari wants the click
+   * and the play in the same task, and refuses. A refusal leaves the element
+   * paused, which is the cue to fall back to the start button.
+   */
+  const resumeAfterPlayPress = async (current: Session): Promise<void> => {
+    state.update((previous) => ({ ...previous, awaitingGesture: false }));
+    await current.player.resumeWithSound();
+    if (stopped || session !== current) return;
+
+    if (!current.player.snapshot().paused) {
+      current.loadingScreen.hide();
+      indicator.hide();
+      logger.info('playback started from the Play button');
+      return;
+    }
+
+    logger.info('the browser wants a second gesture before it plays with sound');
+    state.update((previous) => ({ ...previous, awaitingGesture: true }));
+    current.loadingScreen.setMessage('Ready to play');
+    current.loadingScreen.setStartEnabled(true);
   };
 
   const handleGesture = (): void => {
@@ -665,6 +732,16 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
         overlays.showStatus('Stopped');
         return;
 
+      case 'toggle-options':
+        if (current.panel.isVisible()) {
+          // The start screen is not something to close: there is nothing
+          // behind it yet.
+          if (playbackBegun) closePanel(current);
+          return;
+        }
+        openPanel(current);
+        return;
+
       case 'show-settings':
         if (onShowSettings === undefined) {
           logger.debug('this platform has no settings screen');
@@ -675,6 +752,11 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
         return;
 
       case 'exit':
+        // Over a video, the way out of the panel is back to the video.
+        if (current.panel.isVisible() && playbackBegun) {
+          closePanel(current);
+          return;
+        }
         logger.info('exit requested');
         onExit();
         return;
@@ -699,14 +781,27 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
       return;
     }
 
-    // Nothing has been allowed to make a sound yet, so there is no playback to
-    // command. Letting keys through here advanced the queue behind a loading
-    // screen that was still waiting for a click: the start button then resumed
-    // a video the viewer had already skipped past, and the prompt stayed up
-    // over whatever was playing.
-    if (state.get().awaitingGesture) {
-      logger.debug(`ignoring ${command}: playback has not been started yet`);
-      return;
+    // The panel's own commands, and the way out, work whatever is on screen.
+    if (!isPanelCommand(command) && command !== 'show-settings') {
+      // The panel has the keys: the arrows that move between its fields are
+      // the same ones that skip videos.
+      if (current.panel.isVisible()) {
+        logger.debug(`ignoring ${command}: the options panel is open`);
+        return;
+      }
+      if (!playbackBegun) {
+        logger.debug(`ignoring ${command}: nothing is playing yet`);
+        return;
+      }
+      // Nothing has been allowed to make a sound yet, so there is no playback
+      // to command. Letting keys through here advanced the queue behind a
+      // loading screen that was still waiting for a click: the start button
+      // then resumed a video the viewer had already skipped past, and the
+      // prompt stayed up over whatever was playing.
+      if (state.get().awaitingGesture) {
+        logger.debug(`ignoring ${command}: playback has not been started yet`);
+        return;
+      }
     }
 
     const limited = isRateLimited(command);
@@ -951,15 +1046,10 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
       return;
     }
 
-    if (event.type === 'initialization') {
-      // Not once startup has given up. The subscription outlives a failed
-      // start, and the next progress frame from a server that is still working
-      // away used to replace the message explaining why nothing will play with
-      // a progress bar that leads nowhere.
-      if (startFailed) return;
-      // Only while nothing is playing: once there is a video on screen the
-      // viewer is watching it, not a progress bar.
-      if (state.get().playing === null) current.loadingScreen.applyInitialization(event.state);
+    if (event.type === 'pipeline') {
+      // Sooner than the next status poll, which is the whole point of the push.
+      current.panel.applyPipeline(event.state);
+      maybeAutoPlay(current, event.state);
       return;
     }
 
@@ -984,55 +1074,217 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
     cause?: Error,
   ): Result<void, Error> => {
     logger.error(message);
-    startFailed = true;
     loadingScreen.showError(message);
     const error = new Error(message);
     if (cause !== undefined) error.name = cause.name;
     return err(error);
   };
 
+  const openPanel = (current: Session): void => {
+    current.panel.setMode(playbackBegun ? 'playback' : 'start');
+    current.panel.show();
+    logger.debug('options panel opened');
+  };
+
+  const closePanel = (current: Session): void => {
+    current.panel.hide();
+    logger.debug('options panel closed');
+  };
+
   /**
-   * Polls the server until it reports itself ready, or gives up with something
-   * the viewer can act on. The stage is reported straight onto the loading
-   * screen, so a slow index looks like progress rather than a hang.
+   * Picks up a settings change on the server: the values the player reads, and
+   * the two toggles that start from them.
+   *
+   * A toggle the viewer has flipped with a key keeps its state unless the
+   * setting behind it is the thing that changed - then the new default wins,
+   * since that is evidently what was just asked for.
    */
-  const waitForServer = async (
-    loadingScreen: LoadingScreen,
-    config: ClientConfig,
-  ): Promise<Result<ServiceStatus, Error>> => {
-    const deadline = Date.now() + STARTUP_TIMEOUT_MS;
-
-    for (;;) {
-      if (stopped) return err(new Error('the player was stopped during startup'));
-
-      const status = await attemptAsync(() => api.getStatus());
-      if (status.ok) {
-        reportConnection('connected');
-        const initialization = status.value.initialization;
-        loadingScreen.applyInitialization(initialization);
-
-        if (initialization.stage === 'error') {
-          return err(new Error(initialization.error ?? initialization.message));
-        }
-        if (initialization.stage === 'ready') {
-          if (hasEnoughVideos(status.value)) return ok(status.value);
-          loadingScreen.setMessage(
-            status.value.totalVideos === 0
-              ? 'No videos found. Check the directories in the server configuration.'
-              : 'Waiting for the server to transcode a few videos...',
-          );
-        }
-      } else {
-        reportConnection('disconnected');
-        logger.warn(`could not read the server status - ${status.error.message}`);
-      }
-
-      if (Date.now() >= deadline) {
-        reportConnection('failed');
-        return err(new Error(STARTUP_TIMEOUT_MESSAGE));
-      }
-      await delay(config.timeouts.initializationRetryDelay);
+  const refreshConfig = async (current: Session): Promise<void> => {
+    const fetched = await attemptAsync(() => api.getConfig());
+    if (stopped || session !== current) return;
+    if (!fetched.ok) {
+      logger.warn(`could not read the new settings - ${fetched.error.message}`);
+      return;
     }
+
+    const previous = settings;
+    const next = fetched.value;
+    settings = next;
+    logger.info('settings updated');
+    if (previous === null) return;
+
+    const snapshot = current.player.snapshot();
+    if (
+      previous.crossfade.enabled !== next.crossfade.enabled &&
+      snapshot.crossfadeEnabled !== next.crossfade.enabled
+    ) {
+      current.player.toggleCrossfade();
+    }
+    if (previous.blur.enabled !== next.blur.enabled && snapshot.blurEnabled !== next.blur.enabled) {
+      current.player.toggleBlur();
+    }
+  };
+
+  /**
+   * The server has swapped in a queue built under new settings. Everything
+   * queued here past the next couple of videos was made under the old ones, so
+   * it goes, and the fresh batch is drawn in behind what is left. The video on
+   * screen carries on regardless.
+   */
+  const takeFreshBatch = (current: Session): void => {
+    // A follower draws nothing from the queue, and a screen still on the start
+    // screen will build its queue from the fresh batch anyway.
+    if (!playbackBegun || isFollower) return;
+    const dropped = current.queue.truncate(KEEP_AFTER_SETTINGS_CHANGE);
+    logger.info(`the server rebuilt its queue under new settings; dropped ${dropped} queued videos`);
+    void current.queue.fill();
+    mirrorQueue(toMirroredQueue(current));
+  };
+
+  const maybeAutoPlay = (current: Session, pipeline: PipelineState): void => {
+    if (playbackBegun || autoPlaySuppressed || !pipeline.autoPlay) return;
+    if (pipeline.queue.status !== 'done') return;
+    void beginPlayback(current, false);
+  };
+
+  const applyStatus = (current: Session, status: ServiceStatus): void => {
+    current.panel.applyStatus(status);
+    maybeAutoPlay(current, status.pipeline);
+
+    // Only a rise counts. A fall is a server that restarted, whose numbering
+    // started again, and whose queue this screen has never drawn from.
+    const generation = status.queueGeneration;
+    if (lastGeneration !== null && generation > lastGeneration) takeFreshBatch(current);
+    lastGeneration = generation;
+
+    const revision = status.configRevision;
+    if (lastRevision !== null && revision !== lastRevision) {
+      void refreshConfig(current);
+      current.panel.notifyRevision(revision);
+    }
+    lastRevision = revision;
+  };
+
+  const pollStatus = async (current: Session): Promise<void> => {
+    // A slow server must not have polls stacking up behind each other.
+    if (statusPolling) return;
+    statusPolling = true;
+    const status = await attemptAsync(() => api.getStatus());
+    statusPolling = false;
+    if (stopped || session !== current) return;
+
+    if (!status.ok) {
+      reportConnection('disconnected');
+      logger.debug(`could not read the server status - ${status.error.message}`);
+      return;
+    }
+    reportConnection('connected');
+    applyStatus(current, status.value);
+  };
+
+  const startStatusPolling = (current: Session): void => {
+    void pollStatus(current);
+    statusTimer = setInterval(() => {
+      if (!stopped && session === current) void pollStatus(current);
+    }, STATUS_POLL_INTERVAL_MS);
+  };
+
+  /** Playing could not begin; the start screen says why and offers Play again. */
+  const backToStart = (current: Session, message: string): void => {
+    logger.error(message);
+    playbackBegun = false;
+    autoPlaySuppressed = true;
+    resumeOnLoad = false;
+    current.loadingScreen.hide();
+    current.panel.setMode('start');
+    current.panel.show();
+    current.panel.showMessage(message, true);
+  };
+
+  /**
+   * Leaves the start screen and starts watching: builds this screen's own
+   * queue from the server's and plays the first video.
+   *
+   * `byViewer` is whether Play was pressed, as opposed to auto play firing.
+   * In a browser only the former is a gesture the autoplay policy will accept.
+   */
+  const beginPlayback = async (current: Session, byViewer: boolean): Promise<void> => {
+    if (playbackBegun || stopped || session !== current) return;
+    playbackBegun = true;
+    if (byViewer) autoPlaySuppressed = false;
+
+    const { loadingScreen, panel, player, queue, config } = current;
+    panel.showMessage('', false);
+    panel.setMode('playback');
+    panel.hide();
+    loadingScreen.show();
+    loadingScreen.setProgress(0);
+    loadingScreen.setMessage('Building playback queue...');
+    logger.info(byViewer ? 'playback requested' : 'starting playback automatically');
+
+    // Above the follower branch, not below it. A follower is still a browser
+    // tab, and the autoplay policy does not care what role a screen plays: it
+    // used to reach `player.play` with `paused` false, start muted - which is
+    // permitted - and then be paused by the browser 100ms later when
+    // `scheduleUnmute` unmuted it without a gesture. Nothing wrote that pause
+    // into the player's own state, so the sync loop went on correcting a stopped
+    // element, and there was no start button anywhere to rescue it.
+    const awaitGesture = (): void => {
+      if (startMode !== 'await-gesture') return;
+      // The browser autoplay policy refuses an audible start, so the first
+      // video is loaded paused. When Play was pressed, that press is used to
+      // start it; otherwise the viewer's click on the start button is.
+      player.setPaused(true);
+      state.update((previous) => ({ ...previous, awaitingGesture: true }));
+      resumeOnLoad = byViewer;
+      detachStartButton = loadingScreen.onStart(handleGesture);
+    };
+
+    if (isFollower) {
+      // Deliberately no queue, no monitor and no mirror timer. A follower that
+      // drew from the shared pool would take videos the leader was going to
+      // play, and one that mirrored its own queue would overwrite the leader's
+      // protected set - letting the temp sweep delete the video on screen.
+      awaitGesture();
+      loadingScreen.setMessage(
+        state.get().awaitingGesture && !resumeOnLoad
+          ? 'Waiting for the leading screen. Press start when it appears.'
+          : 'Waiting for the leading screen...',
+      );
+      startMirroring(current);
+      logger.info('the player is running as a follower');
+      return;
+    }
+
+    const built = await queue.buildInitial((progress) => {
+      loadingScreen.showQueueProgress(progress.current, progress.target);
+    });
+    if (stopped || session !== current) return;
+    if (!built) {
+      backToStart(current, EMPTY_QUEUE_MESSAGE);
+      return;
+    }
+
+    const first = queue.takeNext();
+    if (first === null) {
+      backToStart(current, EMPTY_QUEUE_MESSAGE);
+      return;
+    }
+
+    stopQueueMonitor = queue.startMonitoring();
+    syncTimer = setInterval(() => {
+      mirrorQueue(toMirroredQueue(current));
+    }, config.timeouts.queueSyncInterval);
+
+    awaitGesture();
+
+    // Through the same path as every other video: a single unplayable file at
+    // the head of the queue used to be terminal here, while every later one is
+    // retried until MAX_CONSECUTIVE_FAILURES of them fail in a row.
+    await playVideo(current, first, false);
+
+    startMirroring(current);
+    logger.info('the player is running');
   };
 
   const start = async (): Promise<Result<void, Error>> => {
@@ -1043,6 +1295,7 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
     const root = elements.loadingScreen.ownerDocument;
     const loadingScreen = createLoadingScreen({ elements, logger: logger.child('loading') });
     loadingScreen.show();
+    loadingScreen.setMessage('Connecting to the VideoJuke server...');
     reportConnection('connecting');
 
     const loaded = await attemptAsync(() => api.getConfig());
@@ -1056,7 +1309,9 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
     }
     if (stopped) return err(new Error('the player was stopped during startup'));
 
-    const config = loaded.value;
+    const initial = loaded.value;
+    settings = initial;
+    const config = createLiveConfig(() => settings ?? initial);
     reportConnection('connected');
 
     const anchor = createOverlayAnchor(root);
@@ -1084,6 +1339,25 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
       logger: logger.child('debug'),
       snapshot: () => toDebugSnapshot(player, queue),
     });
+    const panel = createOptionsPanel({
+      root,
+      container: elements.optionsPanel,
+      banner: elements.updateBanner,
+      api,
+      logger: logger.child('options'),
+      onPlay: () => {
+        void beginPlayback(current, true);
+      },
+      onClose: () => {
+        closePanel(current);
+      },
+      onSaved: () => {
+        void refreshConfig(current);
+      },
+      onChangeServer: onShowSettings,
+      arrowNavigation: options.arrowNavigation === true,
+      playAlwaysReady: isFollower,
+    });
 
     const current: Session = {
       config,
@@ -1093,69 +1367,18 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
       debugPanel,
       player,
       queue,
+      panel,
     };
     session = current;
     unsubscribeEvents = api.subscribe(handleServerEvent);
 
-    const status = await waitForServer(loadingScreen, config);
-    if (!status.ok) return fail(loadingScreen, status.error.message, status.error);
-
-    // Above the follower branch, not below it. A follower is still a browser
-    // tab, and the autoplay policy does not care what role a screen plays: it
-    // used to reach `player.play` with `paused` false, start muted - which is
-    // permitted - and then be paused by the browser 100ms later when
-    // `scheduleUnmute` unmuted it without a gesture. Nothing wrote that pause
-    // into the player's own state, so the sync loop went on correcting a stopped
-    // element, and there was no start button anywhere to rescue it.
-    const awaitGesture = (): void => {
-      if (startMode !== 'await-gesture') return;
-      // The browser autoplay policy refuses an audible start, so the first
-      // video is loaded paused and the viewer's click is what begins it. This
-      // is the only behavioural difference between the three clients.
-      player.setPaused(true);
-      state.update((previous) => ({ ...previous, awaitingGesture: true }));
-      detachStartButton = loadingScreen.onStart(handleGesture);
-    };
-
-    if (isFollower) {
-      // Deliberately no queue, no monitor and no mirror timer. A follower that
-      // drew from the shared pool would take videos the leader was going to
-      // play, and one that mirrored its own queue would overwrite the leader's
-      // protected set - letting the temp sweep delete the video on screen.
-      awaitGesture();
-      loadingScreen.setMessage(
-        state.get().awaitingGesture
-          ? 'Waiting for the leading screen. Press start when it appears.'
-          : 'Waiting for the leading screen...',
-      );
-      startMirroring(current);
-      logger.info('the player is running as a follower');
-      return ok(undefined);
-    }
-
-    const built = await queue.buildInitial((progress) => {
-      loadingScreen.showQueueProgress(progress.current, progress.target);
-    });
-    if (stopped) return err(new Error('the player was stopped during startup'));
-    if (!built) return fail(loadingScreen, EMPTY_QUEUE_MESSAGE);
-
-    const first = queue.takeNext();
-    if (first === null) return fail(loadingScreen, EMPTY_QUEUE_MESSAGE);
-
-    stopQueueMonitor = queue.startMonitoring();
-    syncTimer = setInterval(() => {
-      mirrorQueue(toMirroredQueue(current));
-    }, config.timeouts.queueSyncInterval);
-
-    awaitGesture();
-
-    // Through the same path as every other video: a single unplayable file at
-    // the head of the queue used to be terminal here, while every later one is
-    // retried until MAX_CONSECUTIVE_FAILURES of them fail in a row.
-    await playVideo(current, first, false);
-
-    startMirroring(current);
-    logger.info('the player is running');
+    // Nothing is indexed or transcoded until it is asked for, so the first
+    // thing anyone sees is the start screen rather than a progress bar.
+    loadingScreen.hide();
+    panel.setMode('start');
+    panel.show();
+    startStatusPolling(current);
+    logger.info('showing the start screen');
     return ok(undefined);
   };
 
@@ -1166,6 +1389,11 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
     cooldownTimer = clearTimer(cooldownTimer);
     recoveryTimer = clearTimer(recoveryTimer);
     commandBusy = false;
+
+    if (statusTimer !== null) {
+      clearInterval(statusTimer);
+      statusTimer = null;
+    }
 
     if (syncTimer !== null) {
       clearInterval(syncTimer);
@@ -1208,6 +1436,7 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
       // renderer to evaluate `getQueueStateForPersistence()`. A follower has no
       // queue of its own and must not overwrite the leader's.
       if (!isFollower) mirrorQueue(current.queue.snapshot());
+      current.panel.cleanup();
       current.debugPanel.cleanup();
       current.overlays.cleanup();
       current.player.cleanup();
@@ -1219,5 +1448,10 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
     logger.info('player stopped');
   };
 
-  return { start, dispatch, stop };
+  return {
+    start,
+    dispatch,
+    isPanelOpen: () => session !== null && session.panel.isVisible(),
+    stop,
+  };
 };

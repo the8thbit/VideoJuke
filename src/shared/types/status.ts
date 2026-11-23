@@ -1,28 +1,69 @@
 import type { IsoTimestamp } from './brand';
 
-export type InitializationStage =
-  | 'idle'
-  | 'loading-config'
-  | 'building-index'
-  | 'restoring-queue'
-  | 'preprocessing'
-  | 'retrying'
-  | 'ready'
-  | 'error';
+/**
+ * Where one step of getting ready stands.
+ *
+ * `idle` is "nobody has asked yet", which since the start screen is where every
+ * session begins: nothing is indexed until a person or the auto settings ask.
+ */
+export type PhaseStatus = 'idle' | 'running' | 'done' | 'error';
 
-export interface InitializationState {
-  readonly stage: InitializationStage;
-  /** Completion in the range 0..1. */
+export interface PhaseState {
+  readonly status: PhaseStatus;
+  /** Completion in the range 0..1; meaningful while running. */
   readonly progress: number;
   readonly message: string;
+  /** The detail behind a failure, or null when there is none. */
   readonly error: string | null;
 }
 
-export const INITIAL_INITIALIZATION_STATE: InitializationState = {
-  stage: 'idle',
+/**
+ * A settings change being worked into a library that is already running.
+ *
+ * Playback carries on throughout. The library is re-scanned first when the
+ * change altered what it contains, then a fresh batch is transcoded under the
+ * new settings and swapped in behind the next couple of videos.
+ */
+export interface SettingsUpdateState {
+  /** Whether this update re-scans the library before rebuilding the queue. */
+  readonly reindex: boolean;
+  readonly stage: 'waiting' | 'reindexing' | 'requeueing';
+  readonly message: string;
+}
+
+/**
+ * The two server-side steps before anything can play, and whether each one
+ * starts the next on its own.
+ *
+ * `index` scans the configured directories (and measures lengths when the
+ * length bias is on). `queue` restores the saved queue and transcodes enough
+ * videos to start. Playing is the client's own step and has no state here, but
+ * whether it follows the queue automatically is shared, so every screen agrees.
+ */
+export interface PipelineState {
+  readonly index: PhaseState;
+  readonly queue: PhaseState;
+  /** Start the queue as soon as indexing completes. */
+  readonly autoQueue: boolean;
+  /** Start playing as soon as the queue is ready. */
+  readonly autoPlay: boolean;
+  /** A settings change being applied in the background, or null. */
+  readonly update: SettingsUpdateState | null;
+}
+
+export const IDLE_PHASE: PhaseState = {
+  status: 'idle',
   progress: 0,
-  message: 'Waiting to start...',
+  message: 'Not started',
   error: null,
+};
+
+export const INITIAL_PIPELINE_STATE: PipelineState = {
+  index: IDLE_PHASE,
+  queue: IDLE_PHASE,
+  autoQueue: false,
+  autoPlay: false,
+  update: null,
 };
 
 /** Counters describing what happened since the process started. */
@@ -55,10 +96,18 @@ export interface QueueGauge {
 
 /** The small status payload clients poll while they wait to start. */
 export interface ServiceStatus {
-  readonly initialization: InitializationState;
+  readonly pipeline: PipelineState;
   readonly preprocessedQueue: QueueGauge;
   readonly isPreprocessing: boolean;
   readonly totalVideos: number;
+  /**
+   * Bumped each time a settings change swaps a fresh batch into the queue. A
+   * client that sees it move keeps its next two videos and drops the rest,
+   * which were chosen and transcoded under the old settings.
+   */
+  readonly queueGeneration: number;
+  /** Bumped on every configuration reload, so a client knows to fetch it again. */
+  readonly configRevision: number;
 }
 
 export interface HistoryGauge {

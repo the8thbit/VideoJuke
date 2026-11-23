@@ -9,7 +9,11 @@ import {
   takePrevious,
   trimHistory,
 } from '../src/shared/queue/history';
-import { selectVideo, type SeasonalCandidate } from '../src/shared/queue/selection';
+import {
+  selectVideo,
+  type DirectoryCandidate,
+  type SeasonalCandidate,
+} from '../src/shared/queue/selection';
 import {
   asIsoTimestamp,
   asProcessedVideoPath,
@@ -236,6 +240,11 @@ describe('history', () => {
 });
 
 describe('selectVideo', () => {
+  /** One regular directory holding the given videos, at the neutral bias. */
+  const pool = (...videos: IndexedVideo[]): readonly DirectoryCandidate[] => [
+    { directory: '/videos', bias: 1, videos },
+  ];
+
   const seasonal = (
     directory: string,
     likelihood: number,
@@ -249,7 +258,7 @@ describe('selectVideo', () => {
 
   it('picks from the regular pool when no seasonal directory fires', () => {
     const outcome = selectVideo({
-      regular: [indexed('a')],
+      regular: pool(indexed('a')),
       seasonal: [],
       excludedPaths: new Set(),
       facts: FACTS,
@@ -262,7 +271,7 @@ describe('selectVideo', () => {
 
   it('prefers a seasonal directory that wins its likelihood roll', () => {
     const outcome = selectVideo({
-      regular: [indexed('regular')],
+      regular: pool(indexed('regular')),
       seasonal: [seasonal('/holiday', 0.5, [indexed('holiday', '/holiday')])],
       excludedPaths: new Set(),
       facts: FACTS,
@@ -275,7 +284,7 @@ describe('selectVideo', () => {
 
   it('falls through when the likelihood roll loses', () => {
     const outcome = selectVideo({
-      regular: [indexed('regular')],
+      regular: pool(indexed('regular')),
       seasonal: [seasonal('/holiday', 0.5, [indexed('holiday', '/holiday')])],
       excludedPaths: new Set(),
       facts: FACTS,
@@ -288,7 +297,7 @@ describe('selectVideo', () => {
   it('skips a seasonal directory whose videos are all excluded', () => {
     const holiday = indexed('holiday', '/holiday');
     const outcome = selectVideo({
-      regular: [indexed('regular')],
+      regular: pool(indexed('regular')),
       seasonal: [seasonal('/holiday', 1, [holiday])],
       excludedPaths: new Set([holiday.originalPath]),
       facts: FACTS,
@@ -300,7 +309,7 @@ describe('selectVideo', () => {
 
   it('ignores a seasonal directory whose conditions do not hold', () => {
     const outcome = selectVideo({
-      regular: [indexed('regular')],
+      regular: pool(indexed('regular')),
       seasonal: [
         {
           ...seasonal('/holiday', 1, [indexed('holiday', '/holiday')]),
@@ -327,7 +336,7 @@ describe('selectVideo', () => {
 
     const only = indexed('a');
     const exhausted = selectVideo({
-      regular: [only],
+      regular: pool(only),
       seasonal: [],
       excludedPaths: new Set([only.originalPath]),
       facts: FACTS,

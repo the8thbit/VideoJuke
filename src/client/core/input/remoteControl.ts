@@ -1,5 +1,5 @@
 import type { Logger } from '../../../shared/types/logging';
-import type { CommandDispatcher, PlayerCommand } from './commands';
+import { isPanelCommand, type CommandDispatcher, type PlayerCommand } from './commands';
 
 /**
  * webOS remote buttons the player answers, indexed by `event.keyCode`.
@@ -23,7 +23,7 @@ export const WEBOS_KEY_COMMANDS: Readonly<Record<number, PlayerCommand>> = {
   403: 'toggle-crossfade', // Red
   404: 'toggle-blur', // Green
   405: 'show-info', // Yellow
-  406: 'show-settings', // Blue
+  406: 'toggle-options', // Blue
   413: 'stop', // Stop
   461: 'exit', // Back
 };
@@ -42,11 +42,24 @@ export const attachRemoteControls = (options: {
   readonly dispatch: CommandDispatcher;
   readonly onUnknownKey?: () => void;
   readonly logger: Logger;
+  /**
+   * True while the options panel is open. The direction pad and OK then belong
+   * to the panel, and only Blue and Back - which close it - get through.
+   */
+  readonly isSuspended?: () => boolean;
 }): (() => void) => {
-  const { target, dispatch, onUnknownKey, logger } = options;
+  const { target, dispatch, onUnknownKey, logger, isSuspended } = options;
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    // The options panel has already answered it.
+    if (event.defaultPrevented) return;
     const command = WEBOS_KEY_COMMANDS[event.keyCode];
+    if (isSuspended !== undefined && isSuspended()) {
+      if (command === undefined || !isPanelCommand(command)) return;
+      event.preventDefault();
+      dispatch(command);
+      return;
+    }
     if (command === undefined) {
       logger.debug(`unbound remote key ${event.keyCode}`);
       // Left unprevented: the TV's own handling of a key we do not use is the

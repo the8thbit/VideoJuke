@@ -1,6 +1,8 @@
 import { toClientConfig } from '../../shared/types/config';
 import type { PlayerApi } from '../../shared/types/protocol';
+import type { LogRecord } from '../../shared/types/settings';
 import type { PlayableVideo, PreprocessedVideo, VideoLocation } from '../../shared/types/video';
+import type { ConfigService } from '../domain/configService';
 import type { Session } from '../domain/session';
 
 /**
@@ -19,6 +21,10 @@ export interface PlayerServiceOptions {
   readonly onShutdownRequest: () => void | Promise<void>;
   /** The server's own clock, which is the only one every screen can agree on. */
   readonly now: () => number;
+  /** Reads and writes config.json for the options panel. */
+  readonly settings: Pick<ConfigService, 'editable' | 'save'>;
+  /** The warnings and errors the options panel lists. */
+  readonly recentLog: () => readonly LogRecord[];
 }
 
 /**
@@ -40,6 +46,23 @@ export const createPlayerService = (
     getConfig: async () => toClientConfig(session.config()),
     getStatus: async () => session.status(),
     getDetailedStats: async () => session.detailedStats(),
+
+    startIndex: async () => {
+      session.startIndex();
+    },
+    startQueue: async () => {
+      session.startQueue();
+    },
+    setAutoQueue: async (enabled) => {
+      session.setAutoQueue(enabled);
+    },
+    setAutoPlay: async (enabled) => {
+      session.setAutoPlay(enabled);
+    },
+
+    getEditableConfig: () => options.settings.editable(),
+    saveConfig: (patch) => options.settings.save(patch),
+    getRecentLog: async () => options.recentLog(),
 
     takeNextVideo: async () => toPlayable(session.takeNextVideo()),
     takePreviousVideo: async () => toPlayable(session.takePreviousVideo()),

@@ -1,4 +1,4 @@
-import type { AppConfig } from '../types/config';
+import { directoryPaths, type AppConfig } from '../types/config';
 import { stableStringify } from '../util/objects';
 
 /**
@@ -8,7 +8,11 @@ import { stableStringify } from '../util/objects';
  * would throw away a perfectly good index every time a timeout is tweaked.
  *
  * The seasonal entries contribute only the fields that select videos; the
- * documentary `comment` is excluded so that editing a note is free.
+ * documentary `comment` is excluded so that editing a note is free. Likewise a
+ * regular directory contributes its path and not its bias: the bias decides how
+ * often a directory is drawn from, never which files it holds, so re-weighting a
+ * directory must not cost a re-scan. Paths alone also encode exactly as the
+ * plain string list did, so caches written before biases existed stay valid.
  *
  * `video.updateInterval` was in here and should not have been: it says how often
  * the index is rebuilt, never what a rebuild finds. Including it meant that
@@ -19,7 +23,7 @@ import { stableStringify } from '../util/objects';
  */
 export const indexRelevantConfigFingerprint = (config: AppConfig): string =>
   stableStringify({
-    directories: config.directories,
+    directories: directoryPaths(config),
     seasonalDirectories: config.seasonalDirectories.map((entry) => ({
       directory: entry.directory,
       likelihood: entry.likelihood,

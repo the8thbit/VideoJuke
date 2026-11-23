@@ -1,5 +1,4 @@
 import type { Logger } from '../../../shared/types/logging';
-import type { InitializationState } from '../../../shared/types/status';
 import { formatPercent } from '../../../shared/util/format';
 import { clampFraction, lerp, ratio } from '../../../shared/util/numbers';
 import { setClass, setText, type PlayerElements } from '../dom/elements';
@@ -13,9 +12,8 @@ export interface LoadingScreen {
   readonly show: () => void;
   readonly hide: () => void;
   readonly setMessage: (message: string) => void;
-  /** Takes a 0..1 fraction, the same units {@link InitializationState} uses. */
+  /** Takes a 0..1 fraction, the same units the server's progress uses. */
   readonly setProgress: (fraction: number) => void;
-  readonly applyInitialization: (state: InitializationState) => void;
   readonly showQueueProgress: (current: number, target: number) => void;
   readonly showError: (message: string) => void;
   readonly setStartEnabled: (enabled: boolean) => void;
@@ -26,10 +24,11 @@ export interface LoadingScreen {
 const HIDDEN_CLASS = 'hidden';
 
 /**
- * Server initialization owns the first 70% of the bar and the client's own
- * playback queue the next 25%, leaving the last 5% for the first video to load.
+ * The loading screen is only up between Play and the first frame now - the
+ * server's steps have their own bars on the start screen - so the client's
+ * playback queue owns most of it, leaving the last 5% for the first video.
  */
-const QUEUE_PROGRESS_FLOOR = 0.7;
+const QUEUE_PROGRESS_FLOOR = 0;
 const QUEUE_PROGRESS_CEILING = 0.95;
 
 const noop = (): void => undefined;
@@ -71,11 +70,6 @@ export const createLoadingScreen = (deps: LoadingScreenDeps): LoadingScreen => {
 
     setMessage,
     setProgress,
-
-    applyInitialization: (state) => {
-      setMessage(state.message);
-      setProgress(state.progress);
-    },
 
     showQueueProgress: (current, target) => {
       const filled = clampFraction(ratio(current, target));

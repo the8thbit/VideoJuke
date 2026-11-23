@@ -12,25 +12,83 @@ export interface SeasonalCandidate {
   readonly videos: readonly IndexedVideo[];
 }
 
+/** One regular directory, already indexed, with its share of the picks. */
+export interface DirectoryCandidate {
+  readonly directory: string;
+  /** Relative weight against the other directories; see `DirectoryConfig.bias`. */
+  readonly bias: number;
+  readonly videos: readonly IndexedVideo[];
+}
+
 export interface SelectionRequest {
-  readonly regular: readonly IndexedVideo[];
+  readonly regular: readonly DirectoryCandidate[];
   readonly seasonal: readonly SeasonalCandidate[];
   /** Source paths already queued or preprocessed, which must not be picked again. */
   readonly excludedPaths: ReadonlySet<string>;
   readonly facts: LocalTimeFacts;
   readonly random: RandomSource;
+  /**
+   * The weight of one video within its directory, which is where the length
+   * bias comes in. Omitted, every video in a directory is equally likely.
+   */
+  readonly weightOf?: (video: IndexedVideo) => number;
 }
 
 export type SelectionOutcome =
   | { readonly kind: 'seasonal'; readonly video: IndexedVideo; readonly directory: string }
-  | { readonly kind: 'regular'; readonly video: IndexedVideo }
+  | { readonly kind: 'regular'; readonly video: IndexedVideo; readonly directory: string }
   | { readonly kind: 'none'; readonly reason: 'no-videos' | 'all-excluded' };
 
 /** Total pool size, ignoring exclusions and time conditions. */
 export const countSelectableVideos = (
   request: Pick<SelectionRequest, 'regular' | 'seasonal'>,
 ): number =>
-  request.regular.length + sumBy(request.seasonal, (candidate) => candidate.videos.length);
+  sumBy(request.regular, (candidate) => candidate.videos.length) +
+  sumBy(request.seasonal, (candidate) => candidate.videos.length);
+
+const isUsableWeight = (weight: number): boolean => weight > 0 && weight < Number.POSITIVE_INFINITY;
+
+/**
+ * Picks one element with probability proportional to its weight, using a
+ * single draw from `random`.
+ *
+ * When every weight is equal this lands on exactly the element `pickRandom`
+ * would for the same draw, which is what keeps a seeded source reproducing the
+ * sequences it produced before weights existed. When no element has a usable
+ * weight - every directory biased to zero - it falls back to an even pick:
+ * a zero bias means "last", not "never", so the player never runs dry while a
+ * video is still available.
+ */
+export const pickWeighted = <T>(
+  values: readonly T[],
+  weightOf: (value: T) => number,
+  random: RandomSource,
+): T | null => {
+  if (values.length === 0) return null;
+
+  const weights = values.map((value) => {
+    const weight = weightOf(value);
+    return isUsableWeight(weight) ? weight : 0;
+  });
+  const total = sumBy(weights, (weight) => weight);
+  if (!isUsableWeight(total)) return pickRandom(values, random);
+
+  const target = random() * total;
+  let cumulative = 0;
+  let lastUsable: T | null = null;
+  for (let index = 0; index < values.length; index += 1) {
+    const weight = weights[index] ?? 0;
+    if (weight === 0) continue;
+    const value = values[index] as T;
+    cumulative += weight;
+    lastUsable = value;
+    if (target < cumulative) return value;
+  }
+  // Only reachable through rounding at the very top of the range.
+  return lastUsable;
+};
+
+const EVEN_WEIGHT = (): number => 1;
 
 /**
  * Picks the next video to preprocess.
@@ -42,10 +100,20 @@ export const countSelectableVideos = (
  * seasonal pass, which is what the original code did and is what keeps a
  * fully-consumed holiday directory from blocking the rest.
  *
- * Randomness is consumed in the legacy order — one draw per likelihood roll,
- * then one for the index — so a seeded source reproduces old sequences.
+ * Otherwise a regular directory is chosen by its bias, among those with
+ * anything left to give, and then a video within it by `weightOf`. Choosing the
+ * directory first is what makes the bias mean what it says: with every bias
+ * equal, a folder of ten videos comes round as often as a folder of ten
+ * thousand, and a bias of 2 is twice as often as a bias of 1 whatever either
+ * folder holds.
+ *
+ * Randomness is consumed in the legacy order - one draw per likelihood roll,
+ * then one for the directory when there is more than one to choose between,
+ * then one for the video - so a seeded source with a single regular directory
+ * reproduces old sequences.
  */
 export const selectVideo = (request: SelectionRequest): SelectionOutcome => {
+  const weightOf = request.weightOf ?? EVEN_WEIGHT;
   const available = (videos: readonly IndexedVideo[]): readonly IndexedVideo[] =>
     videos.filter((video) => !request.excludedPaths.has(video.originalPath));
 
@@ -53,13 +121,26 @@ export const selectVideo = (request: SelectionRequest): SelectionOutcome => {
     if (!matchesTimeCondition(candidate.conditions, request.facts)) continue;
     if (request.random() >= candidate.likelihood) continue;
 
-    const video = pickRandom(available(candidate.videos), request.random);
+    const video = pickWeighted(available(candidate.videos), weightOf, request.random);
     if (video === null) continue;
     return { kind: 'seasonal', video, directory: candidate.directory };
   }
 
-  const video = pickRandom(available(request.regular), request.random);
-  if (video !== null) return { kind: 'regular', video };
+  const open: { readonly candidate: DirectoryCandidate; readonly videos: readonly IndexedVideo[] }[] =
+    [];
+  for (const candidate of request.regular) {
+    const videos = available(candidate.videos);
+    if (videos.length > 0) open.push({ candidate, videos });
+  }
+
+  const chosen =
+    open.length === 1
+      ? (open[0] ?? null)
+      : pickWeighted(open, (entry) => entry.candidate.bias, request.random);
+  if (chosen !== null) {
+    const video = pickWeighted(chosen.videos, weightOf, request.random);
+    if (video !== null) return { kind: 'regular', video, directory: chosen.candidate.directory };
+  }
 
   // An empty pool is a configuration problem; a full-but-exhausted one only
   // means the queue is already holding everything there is.
