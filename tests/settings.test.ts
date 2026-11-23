@@ -34,6 +34,11 @@ describe('classifyConfigChange', () => {
     assert.equal(classifyConfigChange(base, next), 'requeue');
   });
 
+  it('asks for a fresh queue when biases stop scaling with directory size', () => {
+    const next = configOf({ ...BASE, selection: { scaleBiasByDirectorySize: false } });
+    assert.equal(classifyConfigChange(base, next), 'requeue');
+  });
+
   it('asks for a fresh queue when the length bias changes', () => {
     const next = configOf({ ...BASE, selection: { lengthBias: { enabled: true } } });
     assert.equal(classifyConfigChange(base, next), 'requeue');

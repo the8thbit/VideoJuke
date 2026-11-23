@@ -31,10 +31,11 @@ export const LENGTH_BIAS_DIRECTIONS: readonly LengthBiasDirection[] = ['shorter'
 export interface DirectoryConfig {
   readonly directory: string;
   /**
-   * Relative weight when choosing which directory the next video comes from.
-   * Directories are chosen first and videos within them second, so when every
-   * directory has the same bias each is equally likely, however many files it
-   * holds. A bias of 2 is twice as likely as a bias of 1. Zero means the
+   * Relative weight when choosing which directory the next video comes from:
+   * a bias of 2 is twice the weight of a bias of 1. By default the weight is
+   * also scaled by how many videos the directory holds, so equal biases leave
+   * every video equally likely; with `selection.scaleBiasByDirectorySize` off,
+   * equal biases make every directory equally likely instead. Zero means the
    * directory is only drawn from once every other one has nothing left.
    */
   readonly bias: number;
@@ -277,6 +278,17 @@ export interface LengthBiasConfig {
 }
 
 export interface SelectionConfig {
+  /**
+   * Whether a directory's chances grow with the number of videos it holds.
+   *
+   * On (the default), each video weighs its directory's bias, so with equal
+   * biases every video is equally likely and a directory of a thousand comes
+   * round a hundred times as often as a directory of ten - how the player
+   * behaved before biases existed. Off, each directory weighs its bias alone,
+   * so with equal biases a directory of ten comes round as often as one of a
+   * thousand.
+   */
+  readonly scaleBiasByDirectorySize: boolean;
   readonly lengthBias: LengthBiasConfig;
 }
 

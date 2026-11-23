@@ -132,20 +132,31 @@ the strongest level asked for.
 
 ## Selection
 
-Picking is two-stage (`shared/queue/selection.ts`): a directory weighted by its
-bias among directories that still have an eligible video, then a video within
-it. Directory first is what makes equal biases mean equal chances whatever the
-directory sizes. A video belongs to the deepest configured directory that holds
-it (`toDirectoryCandidates`). A bias of 0 is weight zero, and `pickWeighted`
-only falls back to an even pick when every weight is zero, which is how a zero
-bias becomes a last resort.
+Picking is two-stage (`shared/queue/selection.ts`): a directory among those
+that still have an eligible video, then a video within it. A directory weighs
+its bias, multiplied - when `selection.scaleBiasByDirectorySize` is on, the
+default - by the summed weight of its available videos.
 
-The length bias (`shared/queue/lengthBias.ts`) weights the video stage only, so
-it cannot disturb directory shares. The weight is a power law, `(longest /
-length)^k` with `k = ln(maxRatio) / ln(longest / shortest)`, which puts exactly
-`maxRatio` between the ends and is a straight line on a log scale. Lengths come
-from ffprobe during indexing and are cached with the index; an unknown length
-gets `sqrt(maxRatio)`, the geometric middle.
+- Scaled, the two stages multiply out to "each video weighs its directory's
+  bias times its own weight": the same distribution as one flat pick over the
+  library, which with equal biases is the behaviour from before biases existed.
+- Unscaled, the directory stage ignores sizes, which is what lets equal biases
+  mean equal chances per directory.
+
+Directory first in both cases keeps one code path and the legacy order of
+random draws, so with a single directory a seeded source reproduces old
+sequences. A video belongs to the deepest configured directory that holds it
+(`toDirectoryCandidates`). Directories biased to zero sit out the draw while
+any other directory has something left, then share what remains as if
+unbiased, which is how a zero bias becomes a last resort.
+
+The length bias (`shared/queue/lengthBias.ts`) is the per-video weight. Scaled,
+it therefore applies across the whole library; unscaled, it orders videos
+within each directory's share without moving the share. The weight is a power
+law, `(longest / length)^k` with `k = ln(maxRatio) / ln(longest / shortest)`,
+which puts exactly `maxRatio` between the ends and is a straight line on a log
+scale. Lengths come from ffprobe during indexing and are cached with the index;
+an unknown length gets `sqrt(maxRatio)`, the geometric middle.
 
 ## What the server will act on
 

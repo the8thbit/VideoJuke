@@ -15,7 +15,8 @@ export type ConfigChangeImpact = 'none' | 'requeue' | 'reindex';
 
 /**
  * The settings baked into a queued video: which one was picked (the directory
- * biases and the length bias) and how it was encoded (the audio chain).
+ * biases, whether they scale with directory size, and the length bias) and how
+ * it was encoded (the audio chain).
  *
  * Crossfade timing is deliberately not here, although it is computed during
  * transcoding: the player derives it again from the video's length and the
@@ -25,7 +26,7 @@ export type ConfigChangeImpact = 'none' | 'requeue' | 'reindex';
 const queueRelevantFingerprint = (config: AppConfig): string =>
   stableStringify({
     directories: config.directories,
-    lengthBias: config.selection.lengthBias,
+    selection: config.selection,
     audio: config.audio,
   });
 

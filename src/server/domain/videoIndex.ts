@@ -675,6 +675,7 @@ export const createVideoIndex = (deps: VideoIndexDeps): VideoIndex => {
       facts,
       random: deps.random,
       weightOf: (video) => weight(snapshot.durations[video.originalPath] ?? null),
+      scaleBiasByDirectorySize: config().selection.scaleBiasByDirectorySize,
     });
 
     // The legacy build printed the entire time-condition evaluation at info

@@ -48,7 +48,10 @@ const seeded = (seed: number) => {
 };
 
 /** How often each directory wins over many picks. */
-const shares = (regular: readonly DirectoryCandidate[], picks = 20000) => {
+const shares = (
+  regular: readonly DirectoryCandidate[],
+  { scaled, picks = 20000 }: { readonly scaled: boolean; readonly picks?: number },
+) => {
   const random = seeded(7);
   const counts: Record<string, number> = {};
   for (let index = 0; index < picks; index += 1) {
@@ -58,6 +61,7 @@ const shares = (regular: readonly DirectoryCandidate[], picks = 20000) => {
       excludedPaths: new Set(),
       facts: FACTS,
       random,
+      scaleBiasByDirectorySize: scaled,
     });
     if (outcome.kind !== 'regular') throw new Error(`expected a pick, got ${outcome.kind}`);
     counts[outcome.directory] = (counts[outcome.directory] ?? 0) + 1;
@@ -96,30 +100,101 @@ describe('pickWeighted', () => {
   });
 });
 
-describe('directory bias', () => {
+describe('directory bias, scaled by directory size (the default)', () => {
+  const scaled = { scaled: true };
+
+  it('makes every video equally likely when the biases are equal', () => {
+    const result = shares([directory('small', 1, 10), directory('large', 1, 100)], scaled);
+    near(result['/small'], 10 / 110);
+    near(result['/large'], 100 / 110);
+  });
+
+  it('is what an omitted setting means', () => {
+    const regular = [directory('small', 1, 10), directory('large', 1, 100)];
+    const random = seeded(5);
+    let small = 0;
+    for (let index = 0; index < 20000; index += 1) {
+      const outcome = selectVideo({
+        regular,
+        seasonal: [],
+        excludedPaths: new Set(),
+        facts: FACTS,
+        random,
+      });
+      if (outcome.kind === 'regular' && outcome.directory === '/small') small += 1;
+    }
+    near(small / 20000, 10 / 110);
+  });
+
+  it('multiplies the bias by the number of videos', () => {
+    // 2 x 10 against 1 x 30: the smaller directory still wins 20 to 30.
+    const result = shares([directory('double', 2, 10), directory('single', 1, 30)], scaled);
+    near(result['/double'], 20 / 50);
+    near(result['/single'], 30 / 50);
+  });
+
+  it('counts only the videos still available', () => {
+    const large = directory('large', 1, 30);
+    const random = seeded(9);
+    let fromLarge = 0;
+    for (let index = 0; index < 20000; index += 1) {
+      const outcome = selectVideo({
+        regular: [directory('small', 1, 10), large],
+        seasonal: [],
+        // Twenty of the thirty are already queued, leaving ten against ten.
+        excludedPaths: new Set(large.videos.slice(0, 20).map((entry) => entry.originalPath)),
+        facts: FACTS,
+        random,
+        scaleBiasByDirectorySize: true,
+      });
+      if (outcome.kind === 'regular' && outcome.directory === '/large') fromLarge += 1;
+    }
+    near(fromLarge / 20000, 0.5);
+  });
+
+  it('only draws from a zero-bias directory once the others are used up', () => {
+    const zero = directory('zero', 0, 300);
+    const one = directory('one', 1, 1);
+    const result = shares([zero, one], { scaled: true, picks: 2000 });
+    assert.equal(result['/zero'], undefined);
+  });
+
+  it('shares the leftovers by size once only zero-bias directories remain', () => {
+    const result = shares([directory('few', 0, 10), directory('many', 0, 30)], scaled);
+    near(result['/few'], 0.25);
+    near(result['/many'], 0.75);
+  });
+});
+
+describe('directory bias, unscaled', () => {
+  const unscaled = { scaled: false };
+
   it('makes equally biased directories equally likely whatever their size', () => {
-    const result = shares([directory('small', 1, 5), directory('large', 1, 500)]);
+    const result = shares([directory('small', 1, 5), directory('large', 1, 500)], unscaled);
     near(result['/small'], 0.5);
     near(result['/large'], 0.5);
   });
 
   it('makes a bias of 2 twice as likely as a bias of 1', () => {
-    const result = shares([directory('double', 2, 10), directory('single', 1, 10)]);
+    const result = shares([directory('double', 2, 10), directory('single', 1, 30)], unscaled);
     near(result['/double'], 2 / 3);
   });
 
   it('takes fractional biases at their word', () => {
-    const result = shares([directory('more', 2.3, 10), directory('less', 1, 10)]);
+    const result = shares([directory('more', 2.3, 10), directory('less', 1, 10)], unscaled);
     near(result['/more'], 2.3 / 3.3);
   });
 
   it('balances several biased directories against one another', () => {
-    const result = shares([
-      directory('a', 1, 3),
-      directory('b', 2, 30),
-      directory('c', 2, 300),
-      directory('d', 0.5, 3000),
-    ]);
+    const result = shares(
+      [
+        directory('a', 1, 3),
+        directory('b', 2, 30),
+        directory('c', 2, 300),
+        directory('d', 0.5, 3000),
+      ],
+      unscaled,
+    );
     near(result['/a'], 1 / 5.5);
     near(result['/b'], 2 / 5.5);
     near(result['/c'], 2 / 5.5);
@@ -129,7 +204,7 @@ describe('directory bias', () => {
   it('only draws from a zero-bias directory once the others are used up', () => {
     const zero = directory('zero', 0, 3);
     const one = directory('one', 1, 1);
-    const result = shares([zero, one], 2000);
+    const result = shares([zero, one], { scaled: false, picks: 2000 });
     assert.equal(result['/zero'], undefined);
 
     const outcome = selectVideo({
@@ -138,6 +213,7 @@ describe('directory bias', () => {
       excludedPaths: new Set(one.videos.map((entry) => entry.originalPath)),
       facts: FACTS,
       random: () => 0.5,
+      scaleBiasByDirectorySize: false,
     });
     assert.equal(outcome.kind === 'regular' ? outcome.directory : null, '/zero');
   });
@@ -217,7 +293,35 @@ describe('length bias', () => {
     assert.equal(toLengthRange([null, null]), null);
   });
 
-  it('applies within a directory without disturbing the directory share', () => {
+  it('applies across the whole library when biases scale with size', () => {
+    // One video per directory, so any difference between them is the length.
+    const short = video('/a/short.mp4');
+    const long = video('/b/long.mp4');
+    const lengths: Record<string, number> = { [short.originalPath]: 60, [long.originalPath]: 3600 };
+    const weight = createLengthWeight(enabled, range);
+    const random = seeded(13);
+    let shortPicks = 0;
+    for (let index = 0; index < 20000; index += 1) {
+      const outcome = selectVideo({
+        regular: [
+          { directory: '/a', bias: 1, videos: [short] },
+          { directory: '/b', bias: 1, videos: [long] },
+        ],
+        seasonal: [],
+        excludedPaths: new Set(),
+        facts: FACTS,
+        random,
+        weightOf: (entry) => weight(lengths[entry.originalPath] ?? null),
+        scaleBiasByDirectorySize: true,
+      });
+      if (outcome.kind === 'regular' && outcome.video.originalPath === short.originalPath) {
+        shortPicks += 1;
+      }
+    }
+    near(shortPicks / 20000, 10 / 11);
+  });
+
+  it('applies within a directory without disturbing the share when biases do not scale', () => {
     const short = video('/a/short.mp4');
     const long = video('/a/long.mp4');
     const lengths: Record<string, number> = { [short.originalPath]: 60, [long.originalPath]: 3600 };
@@ -236,6 +340,7 @@ describe('length bias', () => {
         facts: FACTS,
         random,
         weightOf: (entry) => weight(lengths[entry.originalPath] ?? null),
+        scaleBiasByDirectorySize: false,
       });
       if (outcome.kind !== 'regular' || outcome.directory !== '/a') continue;
       fromA += 1;
@@ -264,6 +369,17 @@ describe('selection settings', () => {
     });
     assert.equal(config.directories[0]?.bias, 0);
     assert.equal(issues.length, 1);
+  });
+
+  it('ships biases scaled by directory size, and reads them unscaled when asked', () => {
+    const shipped = normalizeConfig({ directories: ['/videos'] }).config;
+    assert.equal(shipped.selection.scaleBiasByDirectorySize, true);
+    const { config, issues } = normalizeConfig({
+      directories: ['/videos'],
+      selection: { scaleBiasByDirectorySize: false },
+    });
+    assert.equal(config.selection.scaleBiasByDirectorySize, false);
+    assert.deepEqual(issues, []);
   });
 
   it('ships the length bias off, favouring shorter videos ten to one', () => {

@@ -135,9 +135,13 @@ const choicesFor = (path: string): readonly string[] | null => {
 
 const HINTS: Readonly<Record<string, string>> = {
   directories:
-    'The bias sets how often a directory is chosen against the others. With equal biases ' +
-    'every directory is equally likely, however many videos it holds; 2 is twice as likely ' +
-    'as 1, and 0 means only once the others have nothing left.',
+    'The bias sets how often a directory is chosen against the others: 2 counts twice as ' +
+    'much as 1, and 0 means only once the others have nothing left. Whether a bigger ' +
+    'directory also comes round more often is set under Selection.',
+  'selection.scaleBiasByDirectorySize':
+    'On: a directory is chosen in proportion to its bias times the videos it holds, so with ' +
+    'equal biases every video is equally likely. Off: with equal biases every directory is ' +
+    'equally likely, however many videos it holds.',
   'selection.lengthBias.enabled':
     'Make videos more or less likely to be picked by their length. Lengths are measured ' +
     'while indexing, so switching this on the first time re-indexes the library.',

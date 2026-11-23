@@ -475,7 +475,10 @@ const readLengthBias = (source: RawField, base: LengthBiasConfig): LengthBiasCon
 
 const readSelection = (source: RawField, base: SelectionConfig): SelectionConfig => {
   const pick = openSection(source);
-  return { lengthBias: readLengthBias(pick('lengthBias'), base.lengthBias) };
+  return {
+    scaleBiasByDirectorySize: bool(pick('scaleBiasByDirectorySize'), base.scaleBiasByDirectorySize),
+    lengthBias: readLengthBias(pick('lengthBias'), base.lengthBias),
+  };
 };
 
 const readStartup = (source: RawField, base: StartupConfig): StartupConfig => {

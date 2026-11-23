@@ -166,9 +166,9 @@ stopping anything:
 5. the fresh batch is queued behind those two.
 
 A banner explains what is happening. A change that only needs a fresh queue (a
-directory bias, the length bias, audio settings) shows up within 2 to 3 videos;
-one that also needs a re-scan (directories, extensions, seasonal entries, or
-switching the length bias on for the first time) within 3 to 10.
+directory bias, the selection settings, audio settings) shows up within 2 to 3
+videos; one that also needs a re-scan (directories, extensions, seasonal
+entries, or switching the length bias on for the first time) within 3 to 10.
 
 Anyone with the access token can use the panel, and so can change which
 directories are played; the token itself can only be changed in `config.json`.
@@ -290,22 +290,31 @@ inside a library.
     { "directory": "D:\Videos\Films", "bias": 0.5 }
   ],
   "selection": {
+    "scaleBiasByDirectorySize": true,
     "lengthBias": { "enabled": false, "favor": "shorter", "maxRatio": 10 }
   },
   "startup": { "autoQueueAfterIndex": false, "autoPlayAfterQueue": false }
 }
 ```
 
-**Directory bias.** A directory is chosen first and a video within it second,
-so every directory with the same bias is equally likely, however many videos it
-holds. A bias of 2 is twice as likely as a bias of 1, and 2.3 is 2.3 times as
-likely; a bare path is a bias of 1. A bias of 0 means the directory is only
-drawn from once every other one has nothing left. A video in a directory nested
-inside another configured directory belongs to the inner one.
+**Directory bias.** A directory's bias is the weight it carries against the
+others: 2 counts twice as much as 1, 2.3 counts 2.3 times as much, and a bare
+path is a bias of 1.
 
-This changes how a library with several directories behaves: before biases
-existed every video was equally likely, so a large directory came round far
-more often than a small one.
+By default (`scaleBiasByDirectorySize: true`) that weight is multiplied by the
+number of videos the directory holds, so the bias applies to each of its
+videos. With equal biases every video is equally likely, as before biases
+existed, and a directory of 1,000 videos comes round 100 times as often as one
+of 10; giving the small one a bias of 100 would even them out.
+
+Set `scaleBiasByDirectorySize` to `false` to apply the bias to the directory as
+a whole instead. With equal biases every directory is then equally likely,
+however many videos it holds, and a bias of 2 makes a directory exactly twice
+as likely as a bias of 1.
+
+Either way, a bias of 0 means the directory is only drawn from once every other
+one has nothing left, and a video in a directory nested inside another
+configured directory belongs to the inner one.
 
 **Length bias.** When enabled, videos are weighted by their length so that one
 end of the library is exactly `maxRatio` times as likely as the other: by
@@ -314,7 +323,9 @@ default the shortest video is 10 times as likely as the longest. Set `favor` to
 2-minute video is favoured over a 4-minute one by the same factor as a 30-minute
 video over an hour-long one. Lengths are measured with ffprobe while indexing
 (only while this is enabled) and cached; a video whose length could not be read
-is weighted halfway between the two ends.
+is weighted halfway between the two ends. With biases scaled by directory size
+this holds across the whole library; unscaled, the length bias orders videos
+within each directory's share and leaves the shares alone.
 
 **Startup.** `autoQueueAfterIndex` and `autoPlayAfterQueue` set the auto queue
 and auto play toggles each new session starts with; see
