@@ -1,4 +1,8 @@
-/* The desktop app runs full-screen and is driven entirely by the keyboard. */
-* {
+/*
+ * The desktop app runs full-screen, so the pointer is hidden over the video.
+ * It comes back whenever the options panel (which is also the start screen) or
+ * the loading screen is up, since those are menus a mouse can drive.
+ */
+body:not(:has(.options-panel:not(.hidden), .loading-screen:not(.hidden))) * {
   cursor: none;
 }
