@@ -16,7 +16,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   seasonalDirectories: [],
   selection: {
     scaleBiasByDirectorySize: true,
-    favoritesBias: 3,
+    favoritesBias: 15,
     lengthBias: {
       enabled: false,
       favor: 'shorter',

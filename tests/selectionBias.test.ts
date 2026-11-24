@@ -466,8 +466,8 @@ describe('favorites', () => {
     assert.deepEqual(favorites.videos, []);
   });
 
-  it('defaults to a bias of 3', () => {
+  it('defaults to a bias of 15', () => {
     const { config } = normalizeConfig({ directories: ['/videos'] });
-    assert.equal(config.selection.favoritesBias, 3);
+    assert.equal(config.selection.favoritesBias, 15);
   });
 });

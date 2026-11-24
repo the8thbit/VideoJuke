@@ -170,8 +170,8 @@ const HINTS: Readonly<Record<string, string>> = {
     'equally likely, however many videos it holds.',
   'selection.favoritesBias':
     'Favorites (S, or B on a controller, adds or removes the video on screen) are drawn as one ' +
-    'more directory with this bias, on top of their own. With 3 and the setting above on, a ' +
-    'favorite comes round 4 times as often as before; 0 gives them nothing extra.',
+    'more directory with this bias, on top of their own. With 15 and the setting above on, a ' +
+    'favorite comes round 16 times as often as before; 0 gives them nothing extra.',
   'selection.lengthBias.enabled':
     'Make videos more or less likely to be picked by their length. Lengths are measured ' +
     'while indexing, so switching this on the first time re-indexes the library.',

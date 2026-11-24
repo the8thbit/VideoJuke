@@ -20,8 +20,10 @@ export interface Overlays {
   readonly showError: (message: string) => void;
   readonly showStatus: (icon: string) => void;
   /**
-   * A large badge in the middle of the screen for a favorite added or taken
-   * away. The corner status was too easy to miss to tell the two apart.
+   * Marks a favorite added or taken away: "Favorited" or "Unfavorited" in the
+   * top right corner, and a half-transparent star in each of the other three,
+   * gold for added and blue for removed, so the two cannot be mistaken for each
+   * other without covering the video.
    */
   readonly showFavorite: (added: boolean) => void;
   /** Toggles the keyboard help panel and returns whether it is now visible. */
@@ -31,7 +33,7 @@ export interface Overlays {
 
 const VISIBLE_CLASS = 'visible';
 
-/** How long the favorite badge stays up: long enough to read, short enough not to linger. */
+/** How long the favorite marks stay up: long enough to see, short enough not to linger. */
 const FAVORITE_DISPLAY_MS = 1000;
 
 interface TimedOverlay {
@@ -89,17 +91,21 @@ export const createOverlays = (deps: OverlaysDeps): Overlays => {
   const favoriteElement = (() => {
     const owner = elements.statusIndicator.ownerDocument;
     const box = owner.createElement('div');
-    box.className = 'overlay favorite-overlay';
+    box.className = 'favorite-marks';
     box.setAttribute('aria-live', 'polite');
-    const star = owner.createElement('div');
-    star.className = 'favorite-star';
     const label = owner.createElement('div');
     label.className = 'favorite-label';
-    box.appendChild(star);
     box.appendChild(label);
+    const corners = ['top-left', 'bottom-left', 'bottom-right'];
+    for (let index = 0; index < corners.length; index += 1) {
+      const star = owner.createElement('div');
+      star.className = `favorite-star ${corners[index] as string}`;
+      star.textContent = '★';
+      box.appendChild(star);
+    }
     const parent = elements.statusIndicator.parentNode ?? owner.body;
     parent.appendChild(box);
-    return { box, star, label };
+    return { box, label };
   })();
   const favorite = createTimedOverlay(favoriteElement.box, anchor);
 
@@ -141,8 +147,7 @@ export const createOverlays = (deps: OverlaysDeps): Overlays => {
     },
 
     showFavorite: (added) => {
-      setText(favoriteElement.star, added ? '★' : '☆');
-      setText(favoriteElement.label, added ? 'Added to favorites' : 'Removed from favorites');
+      setText(favoriteElement.label, added ? 'Favorited' : 'Unfavorited');
       setClass(favoriteElement.box, 'added', added);
       setClass(favoriteElement.box, 'removed', !added);
       favorite.show(FAVORITE_DISPLAY_MS);

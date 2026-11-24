@@ -400,13 +400,14 @@ and auto play toggles each new session starts with; see
 ### Favorites
 
 Press `S` (or B on a controller) while a video plays to add it to the
-favorites, and again to take it out. A large badge in the middle of the screen
-says which happened: a gold ★ for added, a grey ☆ for removed. The favorites take part in selection as
-one more directory, with the bias `selection.favoritesBias` (3 by default), on
-top of the directory each video really lives in. With directory size scaling
-on, that makes a favorite come round 1 + 3 = 4 times as often as it otherwise
-would; with it off, the favorites as a whole are drawn as often as a directory
-of bias 3. Set the bias to 0 to give them nothing extra.
+favorites, and again to take it out. For a second, "Favorited" or "Unfavorited"
+shows in the top right corner, with a half-transparent star in each of the other
+three corners: gold for added, blue for removed. The favorites take part in
+selection as one more directory, with the bias `selection.favoritesBias` (15 by
+default), on top of the directory each video really lives in. With directory
+size scaling on, that makes a favorite come round 1 + 15 = 16 times as often as
+it otherwise would; with it off, the favorites as a whole are drawn as often as
+a directory of bias 15. Set the bias to 0 to give them nothing extra.
 
 The list is kept in `favorites.json`, beside config.json, and survives a
 reinstall. A favorite in a seasonal directory still plays only in season.

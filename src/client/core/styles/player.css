@@ -194,53 +194,66 @@ body {
   border: none;
 }
 
-/* Big enough to read across a room, and gold against grey so adding and
-   removing look nothing alike. */
-.favorite-overlay {
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%) scale(0.85);
-  padding: 28px 44px;
-  text-align: center;
-  border-radius: 18px;
-  border-width: 2px;
+/* A favorite added or removed: a word in the top right corner and a star in
+   each of the other three, gold for added and blue for removed. Nothing covers
+   the middle of the picture. */
+.favorite-marks {
+  position: fixed;
+  /* Spelled out rather than `inset`, which older TV browsers do not know. */
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
   z-index: 12;
 }
 
-.favorite-overlay.visible {
-  opacity: 0.5;
-  transform: translate(-50%, -50%) scale(1);
+.favorite-marks.visible {
+  opacity: 1;
+  visibility: visible;
 }
 
-.favorite-overlay .favorite-star {
-  font-size: 96px;
-  line-height: 1;
-}
-
-.favorite-overlay .favorite-label {
-  margin-top: 12px;
-  font-size: 28px;
+.favorite-marks .favorite-label {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+  color: #fff;
+  font-size: 18px;
   font-weight: 600;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
 
-.favorite-overlay.added {
-  border-color: #f5c518;
-  background: rgba(40, 30, 0, 0.88);
+.favorite-marks .favorite-star {
+  position: absolute;
+  font-size: 64px;
+  line-height: 1;
+  opacity: 0.5;
 }
 
-.favorite-overlay.added .favorite-star {
+.favorite-marks .favorite-star.top-left {
+  top: 16px;
+  left: 20px;
+}
+
+.favorite-marks .favorite-star.bottom-left {
+  bottom: 16px;
+  left: 20px;
+}
+
+.favorite-marks .favorite-star.bottom-right {
+  bottom: 16px;
+  right: 20px;
+}
+
+.favorite-marks.added .favorite-star {
   color: #f5c518;
-  text-shadow: 0 0 24px rgba(245, 197, 24, 0.7);
 }
 
-.favorite-overlay.removed {
-  border-color: #6b7280;
-  background: rgba(20, 20, 24, 0.88);
-}
-
-.favorite-overlay.removed .favorite-star,
-.favorite-overlay.removed .favorite-label {
-  color: #9ca3af;
+.favorite-marks.removed .favorite-star {
+  color: #3b82f6;
 }
 
 /* Panels ----------------------------------------------------------------- */
