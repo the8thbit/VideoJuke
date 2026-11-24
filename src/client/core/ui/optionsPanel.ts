@@ -154,7 +154,8 @@ const HINTS: Readonly<Record<string, string>> = {
     'then playback moves on.',
   'images.displayDuration': 'How long each picture stays on screen, in milliseconds.',
   'images.extensions':
-    'An animated WebP is shown as its first frame. Changing this list re-indexes the library.',
+    'An animated GIF plays through once instead of for the display duration; an animated ' +
+    'WebP is shown as its first frame. Changing this list re-indexes the library.',
   'files.recursive':
     'Also index everything in the subfolders of each directory. Off, only the files ' +
     'directly inside it are indexed; add a subfolder as a directory of its own to play it.',

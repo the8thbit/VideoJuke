@@ -7,6 +7,7 @@ import type { AppConfig } from '../src/shared/types/config';
 import { asIsoTimestamp } from '../src/shared/types/brand';
 import { err, ok, type Result } from '../src/shared/types/result';
 import { extensionOf, indexedExtensions, isImagePath } from '../src/shared/video/mediaKind';
+import { countGifFrames, isAnimatedGif } from '../src/shared/video/gif';
 import { firstWebpFrame, isAnimatedWebp } from '../src/shared/video/webp';
 import { createVideoIndex } from '../src/server/domain/videoIndex';
 import { createVideoPathGuard } from '../src/server/domain/videoPaths';
@@ -23,11 +24,12 @@ const silentLogger = {
 const configOf = (raw: Record<string, unknown>): AppConfig => normalizeConfig(raw).config;
 
 describe('image settings', () => {
-  it('ships images on at 2.5 seconds, WebP included, and scanning not recursive', () => {
+  it('ships images on at 2.5 seconds, WebP and GIF included, and scanning not recursive', () => {
     const { config } = normalizeConfig({ directories: ['/videos'] });
     assert.equal(config.images.enabled, true);
     assert.equal(config.images.displayDuration, 2500);
     assert.ok(config.images.extensions.includes('.webp'));
+    assert.ok(config.images.extensions.includes('.gif'));
     assert.equal(config.files.recursive, false);
   });
 
@@ -152,6 +154,44 @@ describe('animated WebP', () => {
   it('leaves a still, or a file it cannot follow, alone', () => {
     assert.equal(firstWebpFrame(riff(chunk('VP8 ', [1, 2]))), null);
     assert.equal(firstWebpFrame(riff([...VP8X_ANIMATED, ...ANIM])), null);
+  });
+});
+
+/**
+ * A minimal GIF89a: header, a screen descriptor with an optional global colour
+ * table, then one graphic control extension and one image per frame.
+ */
+const gif = (frames: number, { globalTable = false, localTable = false } = {}): Uint8Array => {
+  const bytes = [...'GIF89a'].map((character) => character.charCodeAt(0));
+  // 2x2 canvas; packed byte announces a 2-entry global table when asked.
+  bytes.push(2, 0, 2, 0, globalTable ? 0x80 : 0, 0, 0);
+  if (globalTable) bytes.push(0, 0, 0, 255, 255, 255);
+  for (let frame = 0; frame < frames; frame += 1) {
+    bytes.push(0x21, 0xf9, 4, 0, 10, 0, 0, 0);
+    bytes.push(0x2c, 0, 0, 0, 0, 2, 0, 2, 0, localTable ? 0x80 : 0);
+    if (localTable) bytes.push(0, 0, 0, 255, 255, 255);
+    bytes.push(2, 3, 0x44, 0x01, 0x05, 0);
+  }
+  bytes.push(0x3b);
+  return Uint8Array.from(bytes);
+};
+
+describe('animated GIF', () => {
+  it('counts frames past extensions and colour tables', () => {
+    assert.equal(countGifFrames(gif(1)), 1);
+    assert.equal(countGifFrames(gif(5, { globalTable: true })), 5);
+    assert.equal(countGifFrames(gif(3, { localTable: true })), 3);
+  });
+
+  it('calls two frames an animation and one a still', () => {
+    assert.equal(isAnimatedGif(gif(2)), true);
+    assert.equal(isAnimatedGif(gif(1, { globalTable: true })), false);
+  });
+
+  it('is not fooled by a file that is not a GIF, or one cut short', () => {
+    assert.equal(isAnimatedGif(Uint8Array.from([1, 2, 3])), false);
+    const cut = gif(2);
+    assert.equal(countGifFrames(cut.subarray(0, 30)), 1);
   });
 });
 

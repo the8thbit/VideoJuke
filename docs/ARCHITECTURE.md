@@ -173,6 +173,13 @@ The same misreading is why a picture is never measured for the length bias. A
 scan records its length as unknown, which keeps it out of the length range and
 weighs it in the middle, like an average video.
 
+An animated GIF is the one picture that keeps its own timing: it is encoded
+once through, without the image loop, so the clip lasts one pass of the
+animation. `shared/video/gif.ts` tells it from a single-frame GIF by counting
+image blocks, which is cheaper and surer than asking ffprobe. A single-frame
+GIF has to be held another way, since only the image2 reader loops and it does
+not decode GIF: its frame is cloned out to the display time with `tpad`.
+
 The bundled ffmpeg cannot decode animated WebP, and looped as an image input it
 retries for ever. `shared/video/webp.ts` lifts the first frame out of the RIFF
 container into a still WebP, which is rendered instead; image renders are also

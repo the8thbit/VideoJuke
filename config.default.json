@@ -170,7 +170,8 @@
       ".jpeg",
       ".png",
       ".webp",
-      ".bmp"
+      ".bmp",
+      ".gif"
     ]
   },
   "crossfade": {

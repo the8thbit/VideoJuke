@@ -17,6 +17,7 @@ import type {
 import { classifyAudioProfile, deriveChannelLayout } from '../../shared/video/audioProfile';
 import type { TranscodePlan } from '../../shared/video/encoding';
 import { parseNumber, parseRationalNumber } from '../../shared/util/numbers';
+import { isAnimatedGif } from '../../shared/video/gif';
 import { firstWebpFrame } from '../../shared/video/webp';
 
 if (typeof ffmpegStatic === 'string') {
@@ -38,14 +39,20 @@ export interface TranscodeRequest {
   readonly onProgress?: (progress: TranscodeProgress) => void;
 }
 
-/** A still image to render into a clip that holds it on screen. */
+/**
+ * An image to render into a clip: a still held on screen for a set time, or an
+ * animated GIF played through once at its own pace.
+ */
 export interface ImageRenderRequest {
   readonly inputPath: string;
   readonly outputPath: string;
-  /** How long the clip lasts, in seconds. */
+  /** How long a still is held, in seconds. An animation keeps its own length. */
   readonly durationSeconds: number;
   readonly priority: ProcessPriority;
-  readonly timeoutMs: number;
+  /** The deadline for a still, which should take a second or two. */
+  readonly stillTimeoutMs: number;
+  /** The deadline for an animation, which is as long as its frames make it. */
+  readonly animationTimeoutMs: number;
 }
 
 export interface MediaToolkitDeps {
@@ -229,13 +236,45 @@ const applyImagePlan = (
   durationSeconds: number,
 ): ffmpeg.FfmpegCommand =>
   command
-    .inputOptions(['-loop 1', '-framerate 30'])
+    // Pattern matching off, so a file named `100%.jpg` is read as itself and
+    // not as the template for a numbered sequence.
+    .inputOptions(['-f image2', '-pattern_type none', '-loop 1', '-framerate 30'])
     .videoFilters(IMAGE_FILTER)
     .videoCodec('libx264')
     .noAudio()
     .duration(durationSeconds)
     .format('mp4')
     .outputOptions(['-preset veryfast', '-tune stillimage', '-crf 20', '-movflags +faststart']);
+
+/**
+ * Holds a single-frame GIF. The GIF reader has no `-loop` and the image2 reader
+ * does not decode GIF, so the one frame is read as a very short clip and its
+ * last frame cloned out to the full length instead.
+ */
+const applyStillGifPlan = (
+  command: ffmpeg.FfmpegCommand,
+  durationSeconds: number,
+): ffmpeg.FfmpegCommand =>
+  command
+    .videoFilters(`${IMAGE_FILTER},tpad=stop_mode=clone:stop_duration=${durationSeconds},fps=30`)
+    .videoCodec('libx264')
+    .noAudio()
+    .duration(durationSeconds)
+    .format('mp4')
+    .outputOptions(['-preset veryfast', '-tune stillimage', '-crf 20', '-movflags +faststart']);
+
+/**
+ * Plays an animated GIF through once. The GIF demuxer ignores the file's own
+ * loop count unless told otherwise, so without `-loop` on the input the clip
+ * lasts exactly one pass, at the frame timings the GIF itself sets.
+ */
+const applyAnimationPlan = (command: ffmpeg.FfmpegCommand): ffmpeg.FfmpegCommand =>
+  command
+    .videoFilters(IMAGE_FILTER)
+    .videoCodec('libx264')
+    .noAudio()
+    .format('mp4')
+    .outputOptions(['-preset veryfast', '-crf 20', '-movflags +faststart']);
 
 /**
  * `performance.priority` in the units the OS wants.
@@ -349,26 +388,39 @@ export const createMediaToolkit = (deps: MediaToolkitDeps): MediaToolkit => {
     });
 
   /**
-   * The file ffmpeg should read for an image: the image itself, or for an
-   * animated WebP - which this ffmpeg cannot decode - a still of its first
-   * frame written beside the output, with the means to remove it again.
+   * What ffmpeg should read for an image, and how. Usually the image itself as
+   * a still. An animated GIF is played once instead. An animated WebP - which
+   * this ffmpeg cannot decode - becomes a still of its first frame, written
+   * beside the output and removed again afterwards.
    */
-  const stillSourceFor = async (
+  const sourceFor = async (
     inputPath: string,
     outputPath: string,
-  ): Promise<{ readonly path: string; readonly cleanUp: () => Promise<void> }> => {
-    const unchanged = { path: inputPath, cleanUp: async () => undefined };
-    if (!inputPath.toLowerCase().endsWith('.webp')) return unchanged;
+  ): Promise<{
+    readonly path: string;
+    readonly kind: 'still' | 'still-gif' | 'animation';
+    readonly cleanUp: () => Promise<void>;
+  }> => {
+    const still = { path: inputPath, kind: 'still' as const, cleanUp: async () => undefined };
+    const lowered = inputPath.toLowerCase();
 
+    if (lowered.endsWith('.gif')) {
+      const bytes = await attemptRead(inputPath);
+      const animated = bytes !== null && isAnimatedGif(bytes);
+      return { ...still, kind: animated ? 'animation' : 'still-gif' };
+    }
+
+    if (!lowered.endsWith('.webp')) return still;
     const bytes = await attemptRead(inputPath);
     const frame = bytes === null ? null : firstWebpFrame(bytes);
-    if (frame === null) return unchanged;
+    if (frame === null) return still;
 
     const framePath = `${outputPath}.frame.webp`;
     await fs.writeFile(framePath, frame);
     logger.debug(`${inputPath} is an animated WebP; showing its first frame`);
     return {
       path: framePath,
+      kind: 'still',
       cleanUp: async () => {
         await fs.rm(framePath, { force: true });
       },
@@ -389,21 +441,28 @@ export const createMediaToolkit = (deps: MediaToolkitDeps): MediaToolkit => {
     outputPath,
     durationSeconds,
     priority,
-    timeoutMs,
+    stillTimeoutMs,
+    animationTimeoutMs,
   }: ImageRenderRequest): Promise<Result<void>> => {
-    let source: Awaited<ReturnType<typeof stillSourceFor>>;
+    let source: Awaited<ReturnType<typeof sourceFor>>;
     try {
-      source = await stillSourceFor(inputPath, outputPath);
+      source = await sourceFor(inputPath, outputPath);
     } catch (thrown) {
       return err(toError(thrown));
     }
+    if (source.kind === 'animation') logger.debug(`${inputPath} is an animated GIF; playing it once`);
+    const build = (): ffmpeg.FfmpegCommand => {
+      if (source.kind === 'animation') return applyAnimationPlan(ffmpeg(source.path));
+      if (source.kind === 'still-gif') return applyStillGifPlan(ffmpeg(source.path), durationSeconds);
+      return applyImagePlan(ffmpeg(source.path), durationSeconds);
+    };
     try {
       return await run({
-        build: () => applyImagePlan(ffmpeg(source.path), durationSeconds),
+        build,
         inputPath,
         outputPath,
         priority,
-        timeoutMs,
+        timeoutMs: source.kind === 'animation' ? animationTimeoutMs : stillTimeoutMs,
       });
     } finally {
       await source.cleanUp().catch(() => undefined);

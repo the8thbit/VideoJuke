@@ -165,7 +165,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   images: {
     enabled: true,
     displayDuration: 2500,
-    extensions: ['.jpg', '.jpeg', '.png', '.webp', '.bmp'],
+    extensions: ['.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'],
   },
   crossfade: {
     enabled: false,

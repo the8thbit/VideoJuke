@@ -24,7 +24,7 @@ import { transcodeFileName } from './videoPaths';
 export const MINIMUM_OUTPUT_BYTES = 1024;
 
 /**
- * The longest an image render may take, whatever `transcodeTimeout` allows.
+ * The longest a still image render may take, whatever `transcodeTimeout` allows.
  * Rendering a picture takes a second or two; one ffmpeg cannot decode is looped
  * as an input and retried for ever, and would otherwise hold the queue for the
  * full timeout meant for transcoding a long film.
@@ -144,7 +144,8 @@ export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
   };
 
   /**
-   * An image becomes a silent clip of `images.displayDuration`, and is then
+   * An image becomes a silent clip - held for `images.displayDuration`, or for
+   * an animated GIF one pass of the animation - and is then
    * described by probing that clip rather than the source: the player needs the
    * clip's real length to end it and blend out of it on time, and a probe of
    * the JPEG itself reports a single 0.04 second frame.
@@ -162,7 +163,8 @@ export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
       outputPath,
       durationSeconds: config.images.displayDuration / 1000,
       priority,
-      timeoutMs: Math.min(config.timeouts.transcodeTimeout, IMAGE_RENDER_TIMEOUT_MS),
+      stillTimeoutMs: Math.min(config.timeouts.transcodeTimeout, IMAGE_RENDER_TIMEOUT_MS),
+      animationTimeoutMs: config.timeouts.transcodeTimeout,
     });
     if (!rendered.ok) {
       await deps.fileSystem.remove(outputPath);

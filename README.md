@@ -12,7 +12,7 @@ VideoJuke supports two deployment modes:
 
 - **Random Video Playback**: Continuously plays videos from multiple configured directories
 - **Selection Biases**: Weight each directory, and tilt picks towards shorter or longer videos
-- **Pictures**: Images in your directories play too, each held on screen for 2.5 seconds
+- **Pictures**: Images in your directories play too, each held on screen for 2.5 seconds; animated GIFs play through once
 - **Start Screen & Options Panel**: Index, queue and play on request, and edit every setting from the player, even mid-video
 - **Smart Preprocessing**: Audio normalization and format optimization for smooth playback
 - **Crossfade Transitions**: Smooth blending between videos with configurable timing
@@ -343,7 +343,7 @@ and auto play toggles each new session starts with; see
   "images": {
     "enabled": true,
     "displayDuration": 2500,
-    "extensions": [".jpg", ".jpeg", ".png", ".webp", ".bmp"]
+    "extensions": [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"]
   },
   "files": { "recursive": false }
 }
@@ -354,9 +354,11 @@ videos and picked the same way. When one comes up it stays on screen for
 `displayDuration` milliseconds (2.5 seconds by default) and playback moves on,
 crossfading if crossfades are on. Each picture is rendered into a short silent
 clip when it is queued, so it plays on every client, the TV included. Large
-pictures are scaled to fit 1080p. WebP is supported, lossy and lossless; an
-animated WebP is shown as its first frame. With the length bias on, a picture
-counts as an average-length video. Set `enabled` to `false` to leave pictures
+pictures are scaled to fit 1080p. An animated GIF is the exception to the
+display time: it plays through once at its own pace, however long that is, and
+then playback moves on. WebP is supported, lossy and lossless; an animated WebP
+is shown as its first frame. With the length bias on, a picture - animated GIFs
+included - counts as an average-length video. Set `enabled` to `false` to leave pictures
 out of the index.
 
 **Recursive scanning.** By default only the files directly inside each
