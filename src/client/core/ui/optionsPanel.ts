@@ -198,6 +198,10 @@ const HINTS: Readonly<Record<string, string>> = {
     'off. An index that no longer matches the settings still waits for Index.',
   'video.preprocessedQueueSize': 'Transcoded videos the server keeps ready.',
   'video.playbackQueueSize': 'Videos each screen keeps queued ahead of the one playing.',
+  'video.updateInterval':
+    'How often, in milliseconds, the video directories are checked for new and removed ' +
+    'videos (300000 is five minutes). The check runs alongside playback, and an index ' +
+    'loaded from the cache is also checked shortly after startup.',
   'controls.keyboard':
     'Keys for each action, separated by commas: a letter or digit, a character such as ?, or ' +
     'a name such as Space, Comma, Enter, Escape, ArrowUp, PageDown or F5. Leave an action ' +

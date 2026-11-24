@@ -309,7 +309,7 @@ without a filesystem, ffmpeg or a browser. See
     "playbackQueueInitializationThreshold": 10,
     "playbackHistorySize": 10,
     "persistedHistorySize": 5000,
-    "updateInterval": 900000
+    "updateInterval": 300000
   },
   "crossfade": {
     "enabled": false,
@@ -331,6 +331,14 @@ without a filesystem, ffmpeg or a browser. See
   }
 }
 ```
+
+`updateInterval` is how often, in milliseconds, the directories are checked
+for new and removed videos: every 5 minutes by default. An index loaded from the
+cache at startup is also checked about 20 seconds in, so videos added while
+VideoJuke was closed turn up without waiting a full interval. The check runs
+beside playback: the new index takes over only once the scan is finished, the
+queue and its transcodes are kept, and new videos are simply picked from then
+on.
 
 `archiveDirectory` is where `npm run archive` moves flagged videos; see
 [Archiving Videos](#archiving-videos). It is never scanned, so it is safe to put
@@ -377,8 +385,10 @@ end of the library is exactly `maxRatio` times as likely as the other: by
 default the shortest video is 10 times as likely as the longest. Set `favor` to
 `"longer"` to reverse it. Lengths in between are weighted on a log scale, so a
 2-minute video is favoured over a 4-minute one by the same factor as a 30-minute
-video over an hour-long one. Lengths are measured with ffprobe while indexing
-(only while this is enabled) and cached; a video whose length could not be read
+video over an hour-long one. Lengths are measured while indexing (only while
+this is enabled) and cached: MP4, MOV and M4V files are read from their header,
+which takes a millisecond or two, and other formats with a short ffprobe, eight
+at a time; a video whose length could not be read
 is weighted halfway between the two ends. With biases scaled by directory size
 this holds across the whole library; unscaled, the length bias orders videos
 within each directory's share and leaves the shares alone.
@@ -390,7 +400,8 @@ and auto play toggles each new session starts with; see
 ### Favorites
 
 Press `S` (or B on a controller) while a video plays to add it to the
-favorites, and again to take it out. The favorites take part in selection as
+favorites, and again to take it out. A large badge in the middle of the screen
+says which happened: a gold ★ for added, a grey ☆ for removed. The favorites take part in selection as
 one more directory, with the bias `selection.favoritesBias` (3 by default), on
 top of the directory each video really lives in. With directory size scaling
 on, that makes a favorite come round 1 + 3 = 4 times as often as it otherwise

@@ -1,3 +1,4 @@
+import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
 import { constants, setPriority } from 'os';
 
@@ -19,6 +20,7 @@ import type { TranscodePlan } from '../../shared/video/encoding';
 import { parseNumber, parseRationalNumber } from '../../shared/util/numbers';
 import { isAnimatedGif } from '../../shared/video/gif';
 import { firstWebpFrame } from '../../shared/video/webp';
+import { parseProbedDuration, readIsoMediaDuration } from './mediaDuration';
 
 /**
  * Where a bundled binary can actually be run from.
@@ -36,7 +38,8 @@ export const toRunnablePath = (path: string): string =>
 if (typeof ffmpegStatic === 'string') {
   ffmpeg.setFfmpegPath(toRunnablePath(ffmpegStatic));
 }
-ffmpeg.setFfprobePath(toRunnablePath(ffprobeStatic.path));
+const FFPROBE_PATH = toRunnablePath(ffprobeStatic.path);
+ffmpeg.setFfprobePath(FFPROBE_PATH);
 
 export interface TranscodeProgress {
   /** Completion in the range 0..1, or null when ffmpeg cannot estimate it. */
@@ -74,6 +77,13 @@ export interface MediaToolkitDeps {
 
 export interface MediaToolkit {
   readonly probe: (path: string, timeoutMs: number) => Promise<Result<VideoMetadata>>;
+  /**
+   * Just the length in seconds, or null when it cannot be read. Much cheaper
+   * than `probe`: MP4-family files are read from their header without
+   * starting a process, and anything else gets an ffprobe asked for that one
+   * number rather than every stream.
+   */
+  readonly measureDuration: (path: string, timeoutMs: number) => Promise<number | null>;
   readonly transcode: (request: TranscodeRequest) => Promise<Result<void>>;
   readonly renderImage: (request: ImageRenderRequest) => Promise<Result<void>>;
   /**
@@ -384,6 +394,31 @@ export const createMediaToolkit = (deps: MediaToolkitDeps): MediaToolkit => {
       });
     });
 
+  const measureDuration = async (path: string, timeoutMs: number): Promise<number | null> => {
+    if (stopped) return null;
+    const fromHeader = await readIsoMediaDuration(path);
+    if (fromHeader !== null) return fromHeader;
+    if (stopped) return null;
+    return new Promise<number | null>((resolve) => {
+      execFile(
+        FFPROBE_PATH,
+        [
+          '-v',
+          'error',
+          '-show_entries',
+          'format=duration',
+          '-of',
+          'default=noprint_wrappers=1:nokey=1',
+          path,
+        ],
+        { timeout: timeoutMs, windowsHide: true },
+        (failure, stdout) => {
+          resolve(failure ? null : parseProbedDuration(String(stdout)));
+        },
+      );
+    });
+  };
+
   const transcode = ({
     inputPath,
     outputPath,
@@ -561,5 +596,5 @@ export const createMediaToolkit = (deps: MediaToolkitDeps): MediaToolkit => {
     }
   };
 
-  return { probe, transcode, renderImage, shutdown };
+  return { probe, measureDuration, transcode, renderImage, shutdown };
 };

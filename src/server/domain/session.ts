@@ -116,12 +116,20 @@ const STARTUP_READY_VIDEOS = 3;
 const MINIMUM_STARTUP_VIDEOS = 1;
 
 /**
- * How far the indexed count may move on a re-scan before the queue is thrown
- * away. A handful of added or removed files is normal churn, but a large jump
- * means a directory appeared or vanished and the queue no longer represents
- * what the user is asking to watch.
+ * How long after an index is loaded from the cache the library is checked for
+ * new videos. Long enough for the first video to be on screen, so the scan's
+ * disk reads do not compete with starting playback.
  */
-const INDEX_CHANGE_THRESHOLD = 5;
+const STARTUP_RESCAN_DELAY = 20000;
+
+/** How soon a periodic check that found another step running tries again. */
+const RESCAN_RETRY_DELAY = 30000;
+
+/** The shortest gap between periodic checks, whatever the settings say. */
+const MINIMUM_RESCAN_INTERVAL = 10000;
+
+/** The longest delay a timer accepts; anything longer fires at once. */
+const MAXIMUM_TIMER_DELAY = 2147483647;
 
 /**
  * How long a leader's last publication is still believed.
@@ -193,10 +201,7 @@ export const createSession = (deps: SessionDeps): Session => {
 
   const videoIndex = createVideoIndex({
     fileSystem,
-    measureDuration: async (path) => {
-      const probed = await media.probe(path, config().timeouts.probeTimeout);
-      return probed.ok ? probed.value.duration : null;
-    },
+    measureDuration: (path) => media.measureDuration(path, config().timeouts.probeTimeout),
     paths,
     clock,
     logger: logging.logger.child('videoIndex'),
@@ -225,6 +230,13 @@ export const createSession = (deps: SessionDeps): Session => {
     logger: logging.logger.child('queue'),
     config,
     videoPaths,
+    avoid: () => {
+      const paths = new Set<string>();
+      for (const video of mirroredQueue.get()) paths.add(video.originalPath);
+      for (const video of handedOut.get()) paths.add(video.originalPath);
+      for (const video of history.recent()) paths.add(video.originalPath);
+      return paths;
+    },
     onStatsChange: (change) => {
       if (change.preprocessed !== undefined) {
         stats.increment('preprocessedVideos', change.preprocessed);
@@ -320,6 +332,14 @@ export const createSession = (deps: SessionDeps): Session => {
    */
   const queueRestored = createStore(false);
   const indexTimerStarted = createStore(false);
+  /** The next periodic check of the library, rescheduled after each one. */
+  const indexTimer = createStore<TimerHandle | null>(null);
+  /**
+   * Set when the index came from the cache rather than a scan, so files added
+   * while VideoJuke was closed are still unknown. Answered by a check soon
+   * after startup instead of a full interval later.
+   */
+  const startupRescanOwed = createStore(false);
   const queueTimersStarted = createStore(false);
   const recoveryScheduled = createStore(false);
   const unwatchConfig = createStore<(() => void) | null>(null);
@@ -351,6 +371,10 @@ export const createSession = (deps: SessionDeps): Session => {
       clearInterval(handle);
     }
     timers.set([]);
+    indexTimerStarted.set(false);
+    const pending = indexTimer.get();
+    if (pending !== null) clearTimeout(pending);
+    indexTimer.set(null);
   };
 
   /** Returns false when a directory could not be read, so the count is partial. */
@@ -497,6 +521,7 @@ export const createSession = (deps: SessionDeps): Session => {
       // comparison `rescanIndex` makes.
       stats.setIndexed(videoIndex.count(), videoIndex.snapshot().builtAt);
       lastCompleteIndexCount.set(videoIndex.count());
+      startupRescanOwed.set(true);
       // Switching the length bias on does not change what a scan finds, so a
       // cache from before it was on is still good - it only lacks lengths.
       if (videoIndex.needsMeasurement()) await videoIndex.measure(reportIndexProgress);
@@ -523,15 +548,14 @@ export const createSession = (deps: SessionDeps): Session => {
       return false;
     }
 
-    // Nothing complete has been scanned yet this session, so there is no honest
-    // "before" to compare against and nothing to conclude from the difference.
-    if (before === null) return true;
-    if (Math.abs(after - before) <= INDEX_CHANGE_THRESHOLD) return true;
-
-    logger.info(`indexed videos went from ${before} to ${after}, clearing the queue`);
-    await queue.clear();
-    await persistence.clear();
-    if (pipeline.get().queue.status === 'done') fillInBackground();
+    // The queue is left alone. This used to throw it away when the count moved
+    // by more than a handful, which on a periodic check meant a new folder of
+    // videos stopped playback dead while everything was transcoded again. New
+    // videos are simply picked from now on; removed ones leave the queue
+    // through `removeMissingFiles`.
+    if (before !== null && after !== before) {
+      logger.info(`indexed videos went from ${before} to ${after}`);
+    }
     return true;
   };
 
@@ -700,17 +724,49 @@ export const createSession = (deps: SessionDeps): Session => {
     startQueue();
   };
 
+  /** The settings' gap between checks, read afresh so an edit applies at once. */
+  const indexCheckInterval = (): number =>
+    Math.min(MAXIMUM_TIMER_DELAY, Math.max(MINIMUM_RESCAN_INTERVAL, config().video.updateInterval));
+
+  /**
+   * Replaces the next periodic check with one `delayMs` from now. A chain of
+   * timeouts rather than an interval, because an interval keeps the gap it was
+   * created with and the settings can change it.
+   */
+  const scheduleIndexCheck = (delayMs: number): void => {
+    if (!indexTimerStarted.get()) return;
+    const pending = indexTimer.get();
+    if (pending !== null) clearTimeout(pending);
+    indexTimer.set(
+      setTimeout(() => {
+        indexTimer.set(null);
+        void refreshIndex()
+          .catch((thrown: unknown): boolean => {
+            logger.error('the periodic re-index failed', thrown);
+            return true;
+          })
+          .then((ran) => {
+            // Something else may have scheduled one meanwhile.
+            if (indexTimer.get() !== null) return;
+            scheduleIndexCheck(ran ? indexCheckInterval() : RESCAN_RETRY_DELAY);
+          });
+      }, delayMs),
+    );
+  };
+
   /** Started once, after the first index request, whether or not it finds anything. */
   const startIndexTimer = (): void => {
     if (indexTimerStarted.get()) return;
     indexTimerStarted.set(true);
-    addTimer(
-      setInterval(() => {
-        void refreshIndex().catch((thrown: unknown) => {
-          logger.error('the periodic re-index failed', thrown);
-        });
-      }, config().video.updateInterval),
-    );
+    scheduleIndexCheck(indexCheckInterval());
+  };
+
+  /** Brings the next check forward when the index came from the cache. */
+  const checkSoonIfOwed = (): void => {
+    if (!startupRescanOwed.get()) return;
+    startupRescanOwed.set(false);
+    logger.info('checking the video directories for changes since the index was saved');
+    scheduleIndexCheck(STARTUP_RESCAN_DELAY);
   };
 
   const startIndex = (): void => {
@@ -723,7 +779,10 @@ export const createSession = (deps: SessionDeps): Session => {
           return;
         }
         // After the lock is released, or the queue step would find it held.
-        if (succeeded) continueAfterIndex();
+        if (succeeded) {
+          continueAfterIndex();
+          checkSoonIfOwed();
+        }
       })
       .catch((thrown: unknown) => {
         logger.error('the index step failed', thrown);
@@ -785,6 +844,7 @@ export const createSession = (deps: SessionDeps): Session => {
     }
     stats.setIndexed(videoIndex.count(), videoIndex.snapshot().builtAt);
     lastCompleteIndexCount.set(videoIndex.count());
+    startupRescanOwed.set(true);
     if (videoIndex.needsMeasurement()) await videoIndex.measure(reportIndexProgress);
     finishIndex(true);
     startIndexTimer();
@@ -804,16 +864,22 @@ export const createSession = (deps: SessionDeps): Session => {
   /**
    * The periodic re-scan. It also notices a share that has finally mounted:
    * a first index that failed for want of videos is retried by nothing else.
+   *
+   * Playback carries on throughout: the new index replaces the old one only
+   * once the scan is finished, only new files are measured, and the queue and
+   * the transcodes already made are kept. Returns false when another step held
+   * the lock, so the check is tried again soon rather than a full interval on.
    */
-  const refreshIndex = async (): Promise<void> => {
+  const refreshIndex = async (): Promise<boolean> => {
     // Cleared on purpose: the timer must not quietly build it again.
-    if (pipeline.get().index.status === 'idle') return;
+    if (pipeline.get().index.status === 'idle') return true;
     const outcome = await busy.runExclusive(runIndexStep);
     if (outcome === null) {
       logger.debug('periodic re-index skipped: another step is running');
-      return;
+      return false;
     }
     if (outcome) continueAfterIndex();
+    return true;
   };
 
   const topUpQueue = async (): Promise<void> => {
@@ -1024,7 +1090,10 @@ export const createSession = (deps: SessionDeps): Session => {
       .runExclusive(restoreOnLaunch)
       .then((restored) => {
         // After the lock is released, or the queue step would find it held.
-        if (restored === true) continueAfterIndex();
+        if (restored === true) {
+          continueAfterIndex();
+          checkSoonIfOwed();
+        }
       })
       .catch((thrown: unknown) => {
         logger.error('restoring the saved index and queue failed', thrown);

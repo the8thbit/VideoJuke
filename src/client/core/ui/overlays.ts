@@ -19,6 +19,11 @@ export interface Overlays {
   ) => void;
   readonly showError: (message: string) => void;
   readonly showStatus: (icon: string) => void;
+  /**
+   * A large badge in the middle of the screen for a favorite added or taken
+   * away. The corner status was too easy to miss to tell the two apart.
+   */
+  readonly showFavorite: (added: boolean) => void;
   /** Toggles the keyboard help panel and returns whether it is now visible. */
   readonly toggleControls: () => boolean;
   readonly cleanup: () => void;
@@ -76,6 +81,25 @@ export const createOverlays = (deps: OverlaysDeps): Overlays => {
   const error = createTimedOverlay(elements.errorOverlay, anchor);
   const status = createTimedOverlay(elements.statusIndicator, anchor);
 
+  // Built here rather than in each client's page, so all three get it. The
+  // status indicator's parent is the layer every overlay already lives in.
+  const favoriteElement = (() => {
+    const owner = elements.statusIndicator.ownerDocument;
+    const box = owner.createElement('div');
+    box.className = 'overlay favorite-overlay';
+    box.setAttribute('aria-live', 'polite');
+    const star = owner.createElement('div');
+    star.className = 'favorite-star';
+    const label = owner.createElement('div');
+    label.className = 'favorite-label';
+    box.appendChild(star);
+    box.appendChild(label);
+    const parent = elements.statusIndicator.parentNode ?? owner.body;
+    parent.appendChild(box);
+    return { box, star, label };
+  })();
+  const favorite = createTimedOverlay(favoriteElement.box, anchor);
+
   // The controls panel stays up until it is toggled off, so it holds its
   // anchor acquisition rather than a timer.
   let controlsRelease: (() => void) | null = null;
@@ -113,6 +137,14 @@ export const createOverlays = (deps: OverlaysDeps): Overlays => {
       status.show(config.timeouts.statusDisplayDuration);
     },
 
+    showFavorite: (added) => {
+      setText(favoriteElement.star, added ? '★' : '☆');
+      setText(favoriteElement.label, added ? 'Added to favorites' : 'Removed from favorites');
+      setClass(favoriteElement.box, 'added', added);
+      setClass(favoriteElement.box, 'removed', !added);
+      favorite.show(Math.max(1500, config.timeouts.statusDisplayDuration));
+    },
+
     toggleControls: () => {
       const panel = elements.controlsOverlay;
       if (panel === null) return false;
@@ -133,6 +165,7 @@ export const createOverlays = (deps: OverlaysDeps): Overlays => {
       info.hide();
       error.hide();
       status.hide();
+      favorite.hide();
       hideControls();
     },
   };

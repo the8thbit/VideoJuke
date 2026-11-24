@@ -28,6 +28,12 @@ export interface PreprocessedQueueDeps {
   readonly onStatsChange: (change: QueueStatsChange) => void;
   /** Consulted before any transcode is deleted; see `clear`. */
   readonly videoPaths: VideoPathGuard;
+  /**
+   * Source paths better not picked right now: what a screen is playing or has
+   * queued, and what it played a moment ago. Only a preference - a library too
+   * small to avoid them all still gets videos rather than none.
+   */
+  readonly avoid?: () => ReadonlySet<string>;
 }
 
 export interface PreprocessedQueue {
@@ -102,13 +108,21 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
     );
     const selected: IndexedVideo[] = [];
 
+    // The server's queue is all this used to exclude, so a video already waiting
+    // in a screen's own queue, on screen, or just played could be picked again
+    // and come round twice in a row.
+    const avoided = new Set<string>(excluded);
+    if (deps.avoid !== undefined) deps.avoid().forEach((path) => avoided.add(path));
+
     for (let index = 0; index < count; index += 1) {
-      const source = deps.videoIndex.selectVideo(excluded);
+      const source =
+        deps.videoIndex.selectVideo(avoided) ?? deps.videoIndex.selectVideo(excluded);
       if (source === null) {
         deps.logger.debug(`selection ran dry after ${selected.length} of ${count} videos`);
         break;
       }
       excluded.add(source.originalPath);
+      avoided.add(source.originalPath);
       selected.push(source);
     }
 

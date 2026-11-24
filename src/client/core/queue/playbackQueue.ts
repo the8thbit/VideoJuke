@@ -27,7 +27,12 @@ export interface PlaybackQueue {
   readonly buildInitial: (onProgress?: (progress: QueueProgress) => void) => Promise<boolean>;
   readonly fill: (target?: number) => Promise<void>;
   readonly takeNext: () => QueuedVideo | null;
-  /** Returns false when the video is already queued. */
+  /**
+   * Puts a video at the front. One queued further back is moved forward rather
+   * than refused: refusing it dropped the video being stepped away from, which
+   * is how a "previous" could lose the video it had just left. Returns false
+   * only when the video is already at the front.
+   */
   readonly pushFront: (video: QueuedVideo) => boolean;
   /**
    * Drops everything after the first `keep` entries, and anything a fill in
@@ -182,6 +187,7 @@ export const createPlaybackQueue = (deps: PlaybackQueueDeps): PlaybackQueue => {
   ): Promise<void> => {
     let consecutiveEmpty = 0;
     let consecutiveUnplayable = 0;
+    let consecutiveDuplicates = 0;
 
     while (size() < target) {
       if (disposed) return;
@@ -208,6 +214,18 @@ export const createPlaybackQueue = (deps: PlaybackQueueDeps): PlaybackQueue => {
       }
       consecutiveEmpty = 0;
 
+      // Two copies of one video in the queue play it twice and confuse every
+      // step back and forth after that. The server avoids handing one out, but
+      // a fill racing a step back can still meet one.
+      if (containsPath(state.get(), video.originalPath)) {
+        consecutiveDuplicates += 1;
+        logger.debug(`skipping ${video.filename}: it is already queued`);
+        // A library smaller than the queue has nothing else to give.
+        if (consecutiveDuplicates >= MAX_CONSECUTIVE_UNPLAYABLE) break;
+        continue;
+      }
+      consecutiveDuplicates = 0;
+
       if (!(await probe(video))) {
         consecutiveUnplayable += 1;
         logger.debug(`dropping unplayable video: ${video.filename}`);
@@ -223,6 +241,7 @@ export const createPlaybackQueue = (deps: PlaybackQueueDeps): PlaybackQueue => {
         logger.debug(`discarding ${video.filename}: it was made under the old settings`);
         continue;
       }
+      if (containsPath(state.get(), video.originalPath)) continue;
 
       // Timing is normally computed while transcoding; this fills it in for
       // entries that were cached before the server started doing so.
@@ -317,11 +336,13 @@ export const createPlaybackQueue = (deps: PlaybackQueueDeps): PlaybackQueue => {
     },
 
     pushFront: (video) => {
-      const current = state.get();
-      if (containsPath(current, video.video.originalPath)) {
-        logger.debug(`${video.video.filename} is already queued`);
+      const path = video.video.originalPath;
+      const head = state.get()[0];
+      if (head !== undefined && head.video.originalPath === path) {
+        logger.debug(`${video.video.filename} is already next`);
         return false;
       }
+      const current = state.get().filter((entry) => entry.video.originalPath !== path);
 
       // A little slack over capacity is fine; a queue that keeps growing every
       // time the viewer goes back is not.

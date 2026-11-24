@@ -39,7 +39,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     },
   },
   video: {
-    updateInterval: 900000,
+    updateInterval: 300000,
     preprocessedQueueSize: 20,
     playbackQueueSize: 50,
     playbackQueueInitializationThreshold: 10,

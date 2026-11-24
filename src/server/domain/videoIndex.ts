@@ -254,8 +254,12 @@ const allPaths = (snapshot: VideoIndexSnapshot): readonly string[] => {
   return paths;
 };
 
-/** How many ffprobes run at once while measuring. They read headers, not frames. */
-const MEASURE_CONCURRENCY = 4;
+/**
+ * How many lengths are read at once. Most are a few small header reads, and
+ * the rest a short ffprobe; on a network share the time goes on waiting for
+ * the reads, which more of them in flight hides.
+ */
+const MEASURE_CONCURRENCY = 8;
 
 /**
  * How often a long measurement writes what it has so far. A first measurement

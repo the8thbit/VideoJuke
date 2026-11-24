@@ -327,16 +327,15 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
   };
 
   /**
-   * Records a video as played, unless it came back out of history: recording it
-   * again would move it to the front and the viewer could never step past it.
-   * The legacy clients tracked this by writing a `_fromHistory` flag onto the
-   * video object and deleting it again from three different places.
+   * Records a video as played, which is what puts it where "previous" finds it.
+   *
+   * History is the back half of one stack and the queue the front half: moving
+   * forward always pushes the outgoing video onto history, moving back always
+   * pushes it onto the queue. That includes a video that itself came out of
+   * history. Skipping those used to lose them - step back twice, forward once,
+   * and the video stepped past was in neither list, so "previous" jumped over it.
    */
   const reportEnded = async (video: QueuedVideo): Promise<void> => {
-    if (video.origin === 'history') {
-      logger.debug(`${video.video.filename} came from history; not recording it again`);
-      return;
-    }
     const name = video.video.filename;
     const recorded = await attemptAsync(() => api.recordVideoEnded(video.video));
     if (!recorded.ok) logger.warn(`could not report ${name} as played - ${recorded.error.message}`);
@@ -563,7 +562,8 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
     // The server writes the outgoing video into history as part of the skip.
     // The legacy clients sent that as a separate `addToHistory` request, so two
     // round trips had to arrive in order for history to stay consistent.
-    const skipped = playing === null || playing.origin === 'history' ? null : playing.video;
+    // Always recorded, whichever list it came from; see `reportEnded`.
+    const skipped = playing === null ? null : playing.video;
     const recorded = await attemptAsync(() => api.recordManualSkip(skipped));
     if (!recorded.ok) logger.warn(`could not report the skip - ${recorded.error.message}`);
     if (stopped || session !== current) return;
@@ -572,6 +572,14 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
   };
 
   const manualPrevious = async (current: Session): Promise<void> => {
+    // Checked before anything is popped. Taking the entry and then finding a
+    // transition in the way used to slip it in behind the video that was
+    // arriving, so "previous" played something else first and the order of
+    // the whole stack was off from there on.
+    if (current.player.snapshot().transitioning) {
+      logger.debug('ignoring previous: a transition is already running');
+      return;
+    }
     const previous = await attemptAsync(() => api.takePreviousVideo());
     if (!previous.ok) {
       logger.error('could not ask the server for the previous video', previous.error);
@@ -671,7 +679,7 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
     }
 
     logger.info(`${playing.video.filename} ${toggled.value ? 'added to' : 'removed from'} favorites`);
-    current.overlays.showStatus(toggled.value ? '★ Added to favorites' : 'Removed from favorites');
+    current.overlays.showFavorite(toggled.value);
   };
 
   const runCommand = async (current: Session, command: PlayerCommand): Promise<void> => {
