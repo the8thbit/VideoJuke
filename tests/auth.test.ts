@@ -185,6 +185,7 @@ describe('ensureAuthToken', () => {
     queueStateFile: 'C:/vj/cache/queue-state.json',
     historyFile: 'C:/vj/cache/persisted-history.json',
     archiveFlagsFile: 'C:/vj/flagged_for_archive.json',
+    favoritesFile: 'C:/vj/favorites.json',
   };
 
   const fakeFileSystem = (

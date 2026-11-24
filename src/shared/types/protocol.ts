@@ -125,6 +125,8 @@ export interface PlayerApi {
    * reports; the client never has to hold its own copy of the list.
    */
   readonly toggleArchiveFlag: (video: PreprocessedVideo) => Promise<boolean>;
+  /** Adds the video to the favorites, or takes it out; resolves to whether it is one now. */
+  readonly toggleFavorite: (video: PreprocessedVideo) => Promise<boolean>;
 
   /** Reports what this screen is playing, for other screens to mirror. */
   readonly publishLeaderState: (state: LeaderPublication) => Promise<void>;
@@ -165,6 +167,7 @@ export const IPC_CHANNELS = {
   recordReturnToPrevious: 'player:record-return-to-previous',
   syncPlaybackQueue: 'player:sync-playback-queue',
   toggleArchiveFlag: 'player:toggle-archive-flag',
+  toggleFavorite: 'player:toggle-favorite',
   publishLeaderState: 'player:publish-leader-state',
   getLeaderState: 'player:get-leader-state',
   locatePlayable: 'player:locate-playable',
@@ -198,6 +201,7 @@ export const HTTP_ROUTES = {
   returnToPrevious: '/api/return-to-previous',
   syncPlaybackQueue: '/api/playback-queue',
   toggleArchiveFlag: '/api/archive-flag',
+  toggleFavorite: '/api/favorite',
   publishLeaderState: '/api/leader-state',
   getLeaderState: '/api/leader-state',
   locatePlayable: '/api/locate-playable',

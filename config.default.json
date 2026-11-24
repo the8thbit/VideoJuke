@@ -3,6 +3,7 @@
   "seasonalDirectories": [],
   "selection": {
     "scaleBiasByDirectorySize": true,
+    "favoritesBias": 3,
     "lengthBias": {
       "enabled": false,
       "favor": "shorter",
@@ -214,6 +215,7 @@
       "showInfo": ["I"],
       "showTitle": ["T"],
       "toggleArchive": ["A"],
+      "toggleFavorite": ["S"],
       "toggleDebug": ["Q"],
       "toggleControls": ["?", "/"],
       "toggleOptions": ["O"],
@@ -234,8 +236,9 @@
       "skipForward": ["DpadRight"],
       "skipBackward": ["DpadLeft"],
       "showInfo": ["X"],
-      "showTitle": ["B"],
+      "showTitle": [],
       "toggleArchive": [],
+      "toggleFavorite": ["B"],
       "toggleDebug": [],
       "toggleControls": ["View"],
       "toggleOptions": ["Menu"],

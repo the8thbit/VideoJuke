@@ -9,6 +9,7 @@ import type { ArchiveFlag, IndexedVideo } from '../src/shared/types/video';
 import { countOutcomes, moveFlaggedVideos } from '../src/server/archive/mover';
 import {
   createArchiveFlagsStore,
+  createFavoritesStore,
   decodeArchiveFlags,
 } from '../src/server/domain/archiveFlags';
 import { createVideoPathGuard } from '../src/server/domain/videoPaths';
@@ -106,6 +107,7 @@ const paths = {
   queueStateFile: 'C:/videojuke/cache/queue-state.json',
   historyFile: 'C:/videojuke/cache/persisted-history.json',
   archiveFlagsFile: FLAGS_FILE,
+  favoritesFile: 'C:/vj/favorites.json',
 };
 
 const makeStore = (present = new Set<string>()) => {
@@ -182,6 +184,38 @@ describe('archive flag list', () => {
     });
     await second.load();
     assert.equal(second.isFlagged(`${LIBRARY}/a.mp4`), true);
+  });
+});
+
+describe('favorites list', () => {
+  it('keeps its own file, under its own key, apart from the archive list', async () => {
+    const disk = fakeFileSystem(new Set<string>());
+    const deps = {
+      fileSystem: disk.system,
+      paths,
+      clock: createFixedClock(0),
+      logger: silentLogger,
+      videoPaths: guard,
+    };
+    const favorites = createFavoritesStore(deps);
+    assert.equal(await favorites.toggle(indexed('a.mp4')), true);
+
+    const file = disk.written.get(paths.favoritesFile) as { favorites: readonly ArchiveFlag[] };
+    assert.equal(file.favorites.length, 1);
+    assert.equal(disk.written.has(FLAGS_FILE), false, 'the archive list is untouched');
+
+    const reloaded = createFavoritesStore(deps);
+    await reloaded.load();
+    assert.equal(reloaded.paths().has(`${LIBRARY}/a.mp4`), true);
+  });
+
+  it('hands out the same set until the list changes', async () => {
+    const { store } = makeStore();
+    const before = store.paths();
+    assert.equal(store.paths(), before);
+    await store.toggle(indexed('a.mp4'));
+    assert.notEqual(store.paths(), before);
+    assert.equal(store.paths().has(`${LIBRARY}/a.mp4`), true);
   });
 });
 

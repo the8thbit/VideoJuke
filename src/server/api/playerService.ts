@@ -95,6 +95,7 @@ export const createPlayerService = (
     },
 
     toggleArchiveFlag: (video) => session.toggleArchiveFlag(video),
+    toggleFavorite: (video) => session.toggleFavorite(video),
 
     publishLeaderState: async (state) => {
       session.publishLeaderState(state);

@@ -655,6 +655,25 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
     );
   };
 
+  /** Adds the video on screen to the favorites, or takes it out. */
+  const toggleFavorite = async (current: Session): Promise<void> => {
+    const playing = current.player.snapshot().current;
+    if (playing === null) {
+      logger.debug('ignoring favorite toggle: nothing is playing');
+      return;
+    }
+
+    const toggled = await attemptAsync(() => api.toggleFavorite(playing.video));
+    if (!toggled.ok) {
+      logger.error(`could not change the favorite for ${playing.video.filename}`, toggled.error);
+      current.overlays.showError('Could not update the favorites');
+      return;
+    }
+
+    logger.info(`${playing.video.filename} ${toggled.value ? 'added to' : 'removed from'} favorites`);
+    current.overlays.showStatus(toggled.value ? '★ Added to favorites' : 'Removed from favorites');
+  };
+
   const runCommand = async (current: Session, command: PlayerCommand): Promise<void> => {
     const { player, overlays, config } = current;
 
@@ -729,6 +748,10 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
 
       case 'toggle-archive':
         await toggleArchive(current);
+        return;
+
+      case 'toggle-favorite':
+        await toggleFavorite(current);
         return;
 
       case 'toggle-debug':

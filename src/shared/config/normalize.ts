@@ -548,6 +548,7 @@ const readSelection = (source: RawField, base: SelectionConfig): SelectionConfig
   const pick = openSection(source);
   return {
     scaleBiasByDirectorySize: bool(pick('scaleBiasByDirectorySize'), base.scaleBiasByDirectorySize),
+    favoritesBias: num(pick('favoritesBias'), base.favoritesBias, DIRECTORY_BIAS),
     lengthBias: readLengthBias(pick('lengthBias'), base.lengthBias),
   };
 };

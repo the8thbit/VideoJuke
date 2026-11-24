@@ -387,6 +387,21 @@ within each directory's share and leaves the shares alone.
 and auto play toggles each new session starts with; see
 [Start Screen and Options](#start-screen-and-options).
 
+### Favorites
+
+Press `S` (or B on a controller) while a video plays to add it to the
+favorites, and again to take it out. The favorites take part in selection as
+one more directory, with the bias `selection.favoritesBias` (3 by default), on
+top of the directory each video really lives in. With directory size scaling
+on, that makes a favorite come round 1 + 3 = 4 times as often as it otherwise
+would; with it off, the favorites as a whole are drawn as often as a directory
+of bias 3. Set the bias to 0 to give them nothing extra.
+
+The list is kept in `favorites.json`, beside config.json, and survives a
+reinstall. A favorite in a seasonal directory still plays only in season.
+Toggling a favorite applies to the next videos picked; the few already queued
+are not changed.
+
 ### Images and Scanning
 
 ```json
@@ -622,6 +637,7 @@ controller for the list currently in force.
 - `B` - Toggle blur effects
 
 ### Library
+- `S` - Add the current video to the favorites, or take it out
 - `A` - Flag the current video for archiving, or clear the flag
 
 ### Information & Debug
@@ -647,7 +663,7 @@ with the page focused; the desktop app does the same.
 | Button | Playback | Options panel |
 |---|---|---|
 | A | Play/Pause | Press the focused button, toggle a checkbox, step a drop-down |
-| B | Show title only | Back to the video |
+| B | Add to or remove from favorites | Back to the video |
 | X | Show video info | |
 | Y | Toggle mute | |
 | LB / RB | Previous / next video | Jump to the previous / next section |

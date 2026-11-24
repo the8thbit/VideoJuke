@@ -342,6 +342,18 @@ export const createPlayerRouter = ({
     }),
   );
 
+  router.post(
+    HTTP_ROUTES.toggleFavorite,
+    asyncHandler(async (request, response) => {
+      const video = readVideo(request.body, videoPaths);
+      if (video === null) {
+        sendBadRequest(response, 'expected a preprocessed video');
+        return;
+      }
+      response.json({ favorite: await service.toggleFavorite(video) });
+    }),
+  );
+
   router.get(HTTP_ROUTES.health, (_request, response) => {
     response.json({ status: 'ok', timestamp: toIsoTimestamp(Date.now()) });
   });

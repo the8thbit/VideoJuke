@@ -16,6 +16,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   seasonalDirectories: [],
   selection: {
     scaleBiasByDirectorySize: true,
+    favoritesBias: 3,
     lengthBias: {
       enabled: false,
       favor: 'shorter',
@@ -207,6 +208,7 @@ export const DEFAULT_CONFIG: AppConfig = {
       showInfo: ['I'],
       showTitle: ['T'],
       toggleArchive: ['A'],
+      toggleFavorite: ['S'],
       toggleDebug: ['Q'],
       toggleControls: ['?', '/'],
       toggleOptions: ['O'],
@@ -227,8 +229,9 @@ export const DEFAULT_CONFIG: AppConfig = {
       skipForward: ['DpadRight'],
       skipBackward: ['DpadLeft'],
       showInfo: ['X'],
-      showTitle: ['B'],
+      showTitle: [],
       toggleArchive: [],
+      toggleFavorite: ['B'],
       toggleDebug: [],
       toggleControls: ['View'],
       toggleOptions: ['Menu'],

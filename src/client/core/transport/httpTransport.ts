@@ -484,6 +484,10 @@ export const createHttpTransport = (options: HttpTransportOptions): HttpTranspor
       const response = await send('POST', HTTP_ROUTES.toggleArchiveFlag, video);
       return readJson<{ readonly flagged: boolean }>(response).flagged;
     },
+    toggleFavorite: async (video) => {
+      const response = await send('POST', HTTP_ROUTES.toggleFavorite, video);
+      return readJson<{ readonly favorite: boolean }>(response).favorite;
+    },
 
     requestShutdown: () => {
       // There is no shutdown route: a browser cannot stop a server it does not

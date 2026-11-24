@@ -311,6 +311,13 @@ export interface SelectionConfig {
    * thousand.
    */
   readonly scaleBiasByDirectorySize: boolean;
+  /**
+   * The bias of the favorites, which take part in selection as one more
+   * directory on top of their own: with the default of 3 and size scaling on,
+   * a favorite comes round four times as often as it otherwise would. Zero
+   * gives them no extra share.
+   */
+  readonly favoritesBias: number;
   readonly lengthBias: LengthBiasConfig;
 }
 
@@ -355,6 +362,7 @@ export type ControlAction =
   | 'showInfo'
   | 'showTitle'
   | 'toggleArchive'
+  | 'toggleFavorite'
   | 'toggleDebug'
   | 'toggleControls'
   | 'toggleOptions'
@@ -377,6 +385,7 @@ export const CONTROL_ACTIONS: readonly ControlAction[] = [
   'showInfo',
   'showTitle',
   'toggleArchive',
+  'toggleFavorite',
   'toggleDebug',
   'toggleControls',
   'toggleOptions',

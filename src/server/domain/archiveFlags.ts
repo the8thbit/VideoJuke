@@ -26,6 +26,8 @@ export interface ArchiveFlagsDeps {
 
 export interface ArchiveFlagsStore {
   readonly load: () => Promise<void>;
+  /** The marked source paths, as one set that changes only when the list does. */
+  readonly paths: () => ReadonlySet<string>;
   /** Adds or removes the video, and resolves to whether it is now flagged. */
   readonly toggle: (video: IndexedVideo) => Promise<boolean>;
   readonly isFlagged: (originalPath: string) => boolean;
@@ -122,6 +124,21 @@ export const toArchiveFlagsFile = (
 };
 
 /**
+ * What tells one list of marked videos from another: the archive list and the
+ * favorites are the same kind of thing - a hand-made, unrecomputable list of
+ * source files, written through on every change - kept in different files.
+ */
+export interface MarkedListKind {
+  readonly file: string;
+  /** The array's key in the file. */
+  readonly listKey: string;
+  /** For the log: "flagged for archiving", "added to favorites" and so on. */
+  readonly added: string;
+  readonly removed: string;
+  readonly plural: string;
+}
+
+/**
  * The list of videos the viewer has asked to have moved out of the library.
  *
  * Unlike history or the queue, this is not state the application can rebuild, so
@@ -129,8 +146,31 @@ export const toArchiveFlagsFile = (
  * viewer who flags three videos and then pulls the plug should still find three
  * videos in the file.
  */
-export const createArchiveFlagsStore = (deps: ArchiveFlagsDeps): ArchiveFlagsStore => {
-  const { fileSystem, paths, clock, logger, videoPaths } = deps;
+export const createArchiveFlagsStore = (deps: ArchiveFlagsDeps): ArchiveFlagsStore =>
+  createMarkedListStore(deps, {
+    file: deps.paths.archiveFlagsFile,
+    listKey: 'flagged',
+    added: 'flagged for archiving',
+    removed: 'unflagged from archiving',
+    plural: 'videos flagged for archiving',
+  });
+
+/** The viewer's favorites, which selection gives an extra share of the picks. */
+export const createFavoritesStore = (deps: ArchiveFlagsDeps): ArchiveFlagsStore =>
+  createMarkedListStore(deps, {
+    file: deps.paths.favoritesFile,
+    listKey: 'favorites',
+    added: 'added to favorites',
+    removed: 'removed from favorites',
+    plural: 'favorite videos',
+  });
+
+export const createMarkedListStore = (
+  deps: ArchiveFlagsDeps,
+  kind: MarkedListKind,
+): ArchiveFlagsStore => {
+  const { fileSystem, clock, logger, videoPaths } = deps;
+  const file = kind.file;
   const flags = createStore<readonly ArchiveFlag[]>([]);
   /** Entries the last load could not use; written back untouched. */
   const unrecognised = createStore<readonly unknown[]>([]);
@@ -143,6 +183,8 @@ export const createArchiveFlagsStore = (deps: ArchiveFlagsDeps): ArchiveFlagsSto
   // Writes are queued rather than skipped: a viewer holding the key down must
   // not have the last toggle overtake the one before it on the way to disk.
   const writes = createSerialTask();
+  let pathSetSource: readonly ArchiveFlag[] | null = null;
+  let pathSet: ReadonlySet<string> = new Set();
 
   const save = (): Promise<void> =>
     writes.run(async () => {
@@ -153,49 +195,50 @@ export const createArchiveFlagsStore = (deps: ArchiveFlagsDeps): ArchiveFlagsSto
       // keeps that promise.
       if (unreadable.get()) {
         logger.error(
-          `not writing ${paths.archiveFlagsFile}: it could not be read, and replacing it ` +
-            'would discard the flags it holds. Fix the file, then flag the video again.',
+          `not writing ${file}: it could not be read, and replacing it ` +
+            'would discard what it holds. Fix the file, then try again.',
         );
         return;
       }
 
-      const file = toArchiveFlagsFile(clock.nowIso(), flags.get(), unrecognised.get());
-      const written = await fileSystem.writeJsonAtomically(paths.archiveFlagsFile, file);
+      const contents = toArchiveFlagsFile(clock.nowIso(), flags.get(), unrecognised.get());
+      const body = { savedAt: contents.savedAt, [kind.listKey]: contents.flagged };
+      const written = await fileSystem.writeJsonAtomically(file, body);
       if (!written.ok) {
-        logger.error(`could not write ${paths.archiveFlagsFile}`, written.error);
+        logger.error(`could not write ${file}`, written.error);
         return;
       }
-      logger.debug(`archive list saved: ${file.flagged.length} videos`);
+      logger.debug(`${kind.plural} saved: ${contents.flagged.length}`);
     });
 
   const load = async (): Promise<void> => {
-    if (!(await fileSystem.exists(paths.archiveFlagsFile))) {
-      logger.debug('no archive list yet');
+    if (!(await fileSystem.exists(file))) {
+      logger.debug(`no ${kind.plural} yet`);
       return;
     }
 
-    const contents = await fileSystem.readJson(paths.archiveFlagsFile);
+    const contents = await fileSystem.readJson(file);
     if (!contents.ok) {
       // Deliberately not cleared: this file records a decision the viewer made
       // by hand, and overwriting an unreadable one would throw that away
       // silently. Starting empty is recoverable; deleting it is not.
       unreadable.set(true);
-      logger.warn(`ignoring unreadable ${paths.archiveFlagsFile}: ${contents.error.message}`);
+      logger.warn(`ignoring unreadable ${file}: ${contents.error.message}`);
       return;
     }
 
     unreadable.set(false);
     const { accepted, unrecognised: kept } = partitionArchiveFlags(
-      readField(contents.value, 'flagged'),
+      readField(contents.value, kind.listKey),
       videoPaths,
     );
     flags.set(accepted);
     unrecognised.set(kept);
-    logger.info(`loaded ${accepted.length} videos flagged for archiving`);
+    logger.info(`loaded ${accepted.length} ${kind.plural}`);
     if (kept.length > 0) {
       logger.warn(
-        `${kept.length} entries in ${paths.archiveFlagsFile} name files outside the configured ` +
-          'directories; they are kept but cannot be archived until those directories are back',
+        `${kept.length} entries in ${file} name files outside the configured ` +
+          'directories; they are kept, and count again once those directories are back',
       );
     }
   };
@@ -222,8 +265,17 @@ export const createArchiveFlagsStore = (deps: ArchiveFlagsDeps): ArchiveFlagsSto
 
       await save();
       const flagged = !present;
-      logger.info(`${video.filename} ${flagged ? 'flagged for' : 'unflagged from'} archiving`);
+      logger.info(`${video.filename} ${flagged ? kind.added : kind.removed}`);
       return flagged;
+    },
+
+    paths: () => {
+      const current = flags.get();
+      if (current !== pathSetSource) {
+        pathSetSource = current;
+        pathSet = new Set(current.map((flag) => String(flag.originalPath)));
+      }
+      return pathSet;
     },
 
     isFlagged: (originalPath) => flags.get().some((flag) => flag.originalPath === originalPath),

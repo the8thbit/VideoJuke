@@ -86,6 +86,8 @@ export interface VideoIndexDeps {
   readonly config: () => AppConfig;
   /** Applied to the cache file, which is untrusted input like any other. */
   readonly videoPaths: VideoPathGuard;
+  /** Source paths of the viewer's favorites. Omitted, there are none. */
+  readonly favorites?: () => ReadonlySet<string>;
 }
 
 export interface VideoIndex {
@@ -303,6 +305,29 @@ export const toDirectoryCandidates = (
     videos: buckets[index] ?? [],
   }));
 };
+
+/** The name the favorites go by in the selection log. */
+export const FAVORITES_DIRECTORY = 'favorites';
+
+/**
+ * The favorites as one more directory, beside the ones they really live in.
+ *
+ * Each favorite stays in its own directory and is also here, so it is drawn
+ * through either: with size scaling on, the favorites' share is the bias times
+ * how many there are, and a favorite comes round `1 + bias` times as often as
+ * an ordinary video. Only indexed regular videos count, so a favorite whose
+ * file is gone - or that sits in a seasonal directory, and so only plays in
+ * season - gets no extra share.
+ */
+export const favoritesCandidate = (
+  regular: readonly IndexedVideo[],
+  favorites: ReadonlySet<string>,
+  bias: number,
+): DirectoryCandidate => ({
+  directory: FAVORITES_DIRECTORY,
+  bias,
+  videos: favorites.size === 0 ? [] : regular.filter((video) => favorites.has(video.originalPath)),
+});
 
 /**
  * The regular pool split by directory, kept until the pool or the directories
@@ -664,6 +689,37 @@ export const createVideoIndex = (deps: VideoIndexDeps): VideoIndex => {
     return candidates;
   };
 
+  // Rebuilt only when the pool or the favorites change, for the same reason.
+  let favoritesModel: {
+    readonly regular: readonly IndexedVideo[];
+    readonly favorites: ReadonlySet<string>;
+    readonly videos: readonly IndexedVideo[];
+  } | null = null;
+
+  const withFavorites = (
+    snapshot: VideoIndexSnapshot,
+    candidates: readonly DirectoryCandidate[],
+  ): readonly DirectoryCandidate[] => {
+    const favorites = deps.favorites?.() ?? null;
+    if (favorites === null || favorites.size === 0) return candidates;
+    if (
+      favoritesModel === null ||
+      favoritesModel.regular !== snapshot.regular ||
+      favoritesModel.favorites !== favorites
+    ) {
+      favoritesModel = {
+        regular: snapshot.regular,
+        favorites,
+        videos: favoritesCandidate(snapshot.regular, favorites, 1).videos,
+      };
+    }
+    if (favoritesModel.videos.length === 0) return candidates;
+    return [
+      ...candidates,
+      { directory: FAVORITES_DIRECTORY, bias: config().selection.favoritesBias, videos: favoritesModel.videos },
+    ];
+  };
+
   const lengthWeight = (snapshot: VideoIndexSnapshot): LengthWeight => {
     const lengthBias = config().selection.lengthBias;
     const cached = weights.get();
@@ -692,7 +748,7 @@ export const createVideoIndex = (deps: VideoIndexDeps): VideoIndex => {
     }));
 
     const outcome = selectVideo({
-      regular: directoryCandidates(snapshot),
+      regular: withFavorites(snapshot, directoryCandidates(snapshot)),
       seasonal: candidates,
       excludedPaths,
       facts,

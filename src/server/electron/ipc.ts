@@ -97,6 +97,12 @@ export const registerPlayerIpc = (options: PlayerIpcOptions): (() => void) => {
     return service.toggleArchiveFlag(video);
   };
 
+  const toggleFavorite = async (payload: unknown): Promise<unknown> => {
+    const video = readVideo(payload, IPC_CHANNELS.toggleFavorite);
+    if (video === null) return false;
+    return service.toggleFavorite(video);
+  };
+
   const recordVideoEnded = async (payload: unknown): Promise<void> => {
     const video = readVideo(payload, IPC_CHANNELS.recordVideoEnded);
     if (video === null) return;
@@ -138,6 +144,7 @@ export const registerPlayerIpc = (options: PlayerIpcOptions): (() => void) => {
       (payload) => service.syncPlaybackQueue(decodePreprocessedVideoList(payload, videoPaths)),
     ],
     [IPC_CHANNELS.toggleArchiveFlag, toggleArchiveFlag],
+    [IPC_CHANNELS.toggleFavorite, toggleFavorite],
     [IPC_CHANNELS.publishLeaderState, publishLeaderState],
     [IPC_CHANNELS.getLeaderState, () => service.getLeaderState()],
     [IPC_CHANNELS.locatePlayable, locatePlayable],

@@ -13,7 +13,7 @@ import type { FileSystem } from '../infra/fileSystem';
 import type { ServerLogging } from '../infra/logger';
 import type { AppPaths } from '../infra/paths';
 import type { SystemServices } from '../infra/system';
-import { createArchiveFlagsStore } from './archiveFlags';
+import { createArchiveFlagsStore, createFavoritesStore } from './archiveFlags';
 import type { ConfigService } from './configService';
 import { createHistoryStore } from './historyStore';
 import { createPipelineTracker, scaleProgress } from './pipeline';
@@ -76,6 +76,8 @@ export interface Session {
   readonly syncPlaybackQueue: (videos: readonly PreprocessedVideo[]) => void;
   /** Flags or unflags a video for archiving; resolves to its new state. */
   readonly toggleArchiveFlag: (video: PreprocessedVideo) => Promise<boolean>;
+  /** Adds the video to the favorites or takes it out; resolves to whether it is one now. */
+  readonly toggleFavorite: (video: PreprocessedVideo) => Promise<boolean>;
 
   /** Records what the leading screen is playing, stamped with this server's clock. */
   readonly publishLeaderState: (state: LeaderPublication) => void;
@@ -202,6 +204,7 @@ export const createSession = (deps: SessionDeps): Session => {
     digest: system.digest,
     config,
     videoPaths,
+    favorites: () => favorites.paths(),
   });
 
   const preprocessor = createPreprocessor({
@@ -246,6 +249,14 @@ export const createSession = (deps: SessionDeps): Session => {
     paths,
     clock,
     logger: logging.logger.child('archive'),
+    videoPaths,
+  });
+
+  const favorites = createFavoritesStore({
+    fileSystem,
+    paths,
+    clock,
+    logger: logging.logger.child('favorites'),
     videoPaths,
   });
 
@@ -578,6 +589,7 @@ export const createSession = (deps: SessionDeps): Session => {
     if (queueRestored.get()) return;
     await history.load();
     await archiveFlags.load();
+    await favorites.load();
     const saved = await persistence.load();
     if (saved !== null) {
       queue.restore(saved.queued);
@@ -1166,6 +1178,7 @@ export const createSession = (deps: SessionDeps): Session => {
     },
 
     toggleArchiveFlag: (video) => archiveFlags.toggle(video),
+    toggleFavorite: (video) => favorites.toggle(video),
 
     publishLeaderState: (published) => {
       // Stamped with the server's clock, never the leader's. That single

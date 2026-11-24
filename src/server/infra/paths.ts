@@ -25,6 +25,8 @@ export interface AppPaths {
    * meant to be read, and edited, before `npm run archive` acts on it.
    */
   readonly archiveFlagsFile: string;
+  /** The viewer's favorites, beside the archive list for the same reasons. */
+  readonly favoritesFile: string;
 }
 
 export type DirectoryOverrides = Pick<
@@ -80,5 +82,6 @@ export const resolveAppPaths = ({
     queueStateFile: join(cacheDirectory, 'queue-state.json'),
     historyFile: join(cacheDirectory, 'persisted-history.json'),
     archiveFlagsFile: join(workingDirectory, 'flagged_for_archive.json'),
+    favoritesFile: join(workingDirectory, 'favorites.json'),
   };
 };

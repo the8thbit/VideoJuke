@@ -149,6 +149,7 @@ const paths = {
   queueStateFile: 'C:/videojuke/cache/queue-state.json',
   historyFile: 'C:/videojuke/cache/persisted-history.json',
   archiveFlagsFile: 'C:/videojuke/flagged_for_archive.json',
+  favoritesFile: 'C:/vj/favorites.json',
 };
 
 /** Just enough of a filesystem for config.json to be read and written. */

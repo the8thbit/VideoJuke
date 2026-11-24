@@ -238,6 +238,7 @@ describe('scanning a directory', () => {
         queueStateFile: 'C:/app/cache/queue-state.json',
         historyFile: 'C:/app/cache/persisted-history.json',
         archiveFlagsFile: 'C:/app/flagged_for_archive.json',
+        favoritesFile: 'C:/vj/favorites.json',
       },
       clock: {
         now: () => 0,

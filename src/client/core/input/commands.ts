@@ -28,6 +28,7 @@ export type PlayerCommand =
   | 'show-info'
   | 'show-title'
   | 'toggle-archive'
+  | 'toggle-favorite'
   | 'toggle-debug'
   | 'toggle-controls'
   | 'stop'
@@ -70,6 +71,7 @@ export const ACTION_COMMANDS: Readonly<Record<ControlAction, PlayerCommand>> = {
   showInfo: 'show-info',
   showTitle: 'show-title',
   toggleArchive: 'toggle-archive',
+  toggleFavorite: 'toggle-favorite',
   toggleDebug: 'toggle-debug',
   toggleControls: 'toggle-controls',
   toggleOptions: 'toggle-options',

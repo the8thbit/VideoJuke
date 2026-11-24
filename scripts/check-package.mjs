@@ -23,6 +23,7 @@ const FORBIDDEN = [
   'temp',
   'archive',
   'flagged_for_archive.json',
+  'favorites.json',
   'src',
   'tests',
   '.tsbuild',

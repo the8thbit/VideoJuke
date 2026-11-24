@@ -75,6 +75,7 @@ const videojuke: PlayerApi = {
   syncPlaybackQueue: (videos) => invoke<void>(IPC_CHANNELS.syncPlaybackQueue, videos),
 
   toggleArchiveFlag: (video) => invoke<boolean>(IPC_CHANNELS.toggleArchiveFlag, video),
+  toggleFavorite: (video) => invoke<boolean>(IPC_CHANNELS.toggleFavorite, video),
 
   publishLeaderState: (state) => invoke<void>(IPC_CHANNELS.publishLeaderState, state),
   getLeaderState: () => invoke<LeaderSnapshot>(IPC_CHANNELS.getLeaderState),

@@ -36,6 +36,7 @@ const paths = {
   queueStateFile: `${CACHE}/queue-state.json`,
   historyFile: `${CACHE}/persisted-history.json`,
   archiveFlagsFile: 'C:/videojuke/flagged_for_archive.json',
+  favoritesFile: 'C:/vj/favorites.json',
 };
 
 /** An in-memory filesystem holding only what the sweep looks at. */

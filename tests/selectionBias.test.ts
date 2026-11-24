@@ -12,7 +12,7 @@ import { asIsoTimestamp, asSourceVideoPath } from '../src/shared/types/brand';
 import type { LengthBiasConfig } from '../src/shared/types/config';
 import type { LocalTimeFacts } from '../src/shared/types/time';
 import type { IndexedVideo } from '../src/shared/types/video';
-import { toDirectoryCandidates } from '../src/server/domain/videoIndex';
+import { favoritesCandidate, toDirectoryCandidates } from '../src/server/domain/videoIndex';
 
 const FACTS: LocalTimeFacts = {
   epochMs: Date.UTC(2026, 5, 18, 14, 35),
@@ -403,5 +403,71 @@ describe('selection settings', () => {
     });
     assert.equal(config.selection.lengthBias.favor, 'shorter');
     assert.equal(issues.length, 1);
+  });
+});
+
+describe('favorites', () => {
+  /** How often one particular video is picked over many draws. */
+  const rateOf = (
+    regular: readonly DirectoryCandidate[],
+    path: string,
+    scaled: boolean,
+    picks = 40000,
+  ): number => {
+    const random = seeded(11);
+    let hits = 0;
+    for (let index = 0; index < picks; index += 1) {
+      const outcome = selectVideo({
+        regular,
+        seasonal: [],
+        excludedPaths: new Set(),
+        facts: FACTS,
+        random,
+        scaleBiasByDirectorySize: scaled,
+      });
+      if (outcome.kind === 'regular' && outcome.video.originalPath === path) hits += 1;
+    }
+    return hits / picks;
+  };
+
+  it('gives a favorite 1 + 3 shares by default, against 1 for every other video', () => {
+    const library = directory('library', 1, 10);
+    const favorite = '/library/0.mp4';
+    const favorites = favoritesCandidate(library.videos, new Set([favorite]), 3);
+    assert.equal(favorites.videos.length, 1);
+
+    // Ten shares for the library and three for the favorites: the favorite is
+    // drawn through the library 1 time in 13 and through the favorites 3 in 13.
+    near(rateOf([library, favorites], favorite, true), 4 / 13, 0.015);
+    near(rateOf([library, favorites], '/library/1.mp4', true), 1 / 13, 0.01);
+  });
+
+  it('counts each favorite, so more favorites take a bigger share between them', () => {
+    const library = directory('library', 1, 10);
+    const favorites = favoritesCandidate(
+      library.videos,
+      new Set(['/library/0.mp4', '/library/1.mp4']),
+      3,
+    );
+    // 10 + 6 shares; each favorite has 1 + 3 of them.
+    near(rateOf([library, favorites], '/library/0.mp4', true), 4 / 16, 0.015);
+  });
+
+  it('acts as a directory of bias 3 when directory size does not scale', () => {
+    const library = directory('library', 1, 10);
+    const favorites = favoritesCandidate(library.videos, new Set(['/library/0.mp4']), 3);
+    const result = shares([library, favorites], { scaled: false });
+    near(result['favorites'], 3 / 4);
+  });
+
+  it('leaves out a favorite that is no longer indexed', () => {
+    const library = directory('library', 1, 3);
+    const favorites = favoritesCandidate(library.videos, new Set(['/gone/x.mp4']), 3);
+    assert.deepEqual(favorites.videos, []);
+  });
+
+  it('defaults to a bias of 3', () => {
+    const { config } = normalizeConfig({ directories: ['/videos'] });
+    assert.equal(config.selection.favoritesBias, 3);
   });
 });

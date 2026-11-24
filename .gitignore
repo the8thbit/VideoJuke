@@ -7,6 +7,7 @@ cache/
 temp/
 archive/
 flagged_for_archive.json
+favorites.json
 *.log
 .DS_Store
 config.json

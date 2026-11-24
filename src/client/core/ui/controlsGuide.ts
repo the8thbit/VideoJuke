@@ -26,7 +26,13 @@ const GUIDE: readonly { readonly heading: string; readonly rows: readonly (reado
       ['toggleBlur', 'Toggle blur'],
     ],
   },
-  { heading: 'Library', rows: [['toggleArchive', 'Flag for archive']] },
+  {
+    heading: 'Library',
+    rows: [
+      ['toggleFavorite', 'Add to or remove from favorites'],
+      ['toggleArchive', 'Flag for archive'],
+    ],
+  },
   {
     heading: 'Information',
     rows: [
