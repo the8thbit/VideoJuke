@@ -5,6 +5,9 @@ import type {
   AudioConfig,
   BlurConfig,
   CodecPreferencesConfig,
+  ControlAction,
+  ControlBindings,
+  ControlsConfig,
   ConfigIssue,
   CpuLimitingConfig,
   CrossfadeConfig,
@@ -31,6 +34,7 @@ import type {
 } from '../types/config';
 import {
   AUDIO_CODEC_NAMES,
+  CONTROL_ACTIONS,
   LENGTH_BIAS_DIRECTIONS,
   LOG_LEVEL_NAMES,
   NORMALIZATION_PRESET_NAMES,
@@ -51,6 +55,7 @@ import {
   readStringArray,
 } from '../util/decode';
 import { isPlainObject, mapValues, type UnknownRecord } from '../util/objects';
+import { canonicalGamepadButton, canonicalKeyName, findConflicts } from '../input/bindings';
 import { DEFAULT_CONFIG } from './defaults';
 
 export interface NormalizedConfig {
@@ -461,6 +466,55 @@ const readPlayback = (source: RawField, base: PlaybackConfig): PlaybackConfig =>
  * contains, and it stays the natural spelling for the common case, so it is
  * read as a bias of 1 rather than reported.
  */
+/**
+ * One device's bindings. Each action is read on its own, so a typo in one list
+ * costs that action its new keys and nothing else; a name bound to two actions
+ * is kept for the first and reported, since only one of them can answer it.
+ */
+const readBindings = (
+  source: RawField,
+  base: ControlBindings,
+  canonical: (raw: string) => string | null,
+  device: string,
+): ControlBindings => {
+  const pick = openSection(source);
+  const result = {} as Record<ControlAction, readonly string[]>;
+  for (let index = 0; index < CONTROL_ACTIONS.length; index += 1) {
+    const action = CONTROL_ACTIONS[index] as ControlAction;
+    const field = pick(action);
+    result[action] = readArray(
+      field.context,
+      field.value,
+      (itemContext, item) => {
+        const name = typeof item === 'string' ? canonical(item) : null;
+        if (name === null) {
+          itemContext.report('warning', `ignoring ${JSON.stringify(item)}: not a ${device} name`);
+        }
+        return name;
+      },
+      base[action],
+    );
+  }
+  const conflicts = findConflicts(result);
+  for (let index = 0; index < conflicts.length; index += 1) {
+    const conflict = conflicts[index];
+    if (conflict === undefined) continue;
+    pick(conflict.loser).context.report(
+      'warning',
+      `${conflict.name} is also bound to ${conflict.winner}, which takes it`,
+    );
+  }
+  return result;
+};
+
+const readControls = (source: RawField, base: ControlsConfig): ControlsConfig => {
+  const pick = openSection(source);
+  return {
+    keyboard: readBindings(pick('keyboard'), base.keyboard, canonicalKeyName, 'key'),
+    gamepad: readBindings(pick('gamepad'), base.gamepad, canonicalGamepadButton, 'controller button'),
+  };
+};
+
 const readDirectoryEntry = (context: DecodeContext, value: unknown): DirectoryConfig | null => {
   if (typeof value === 'string') {
     if (value.trim() !== '') return { directory: value, bias: 1 };
@@ -592,6 +646,7 @@ export const normalizeConfig = (
     blur: readBlur(pick('blur'), base.blur),
     ui: readUi(pick('ui'), base.ui),
     playback: readPlayback(pick('playback'), base.playback),
+    controls: readControls(pick('controls'), base.controls),
   };
 
   return { config, issues: collector.issues() };

@@ -328,6 +328,97 @@ export interface StartupConfig {
 }
 
 /**
+ * Everything a key or a controller button can be bound to, named as it appears
+ * under `controls.keyboard` and `controls.gamepad` in config.json.
+ */
+export type ControlAction =
+  | 'playPause'
+  | 'next'
+  | 'previous'
+  | 'restart'
+  | 'toggleLoop'
+  | 'toggleMute'
+  | 'toggleCrossfade'
+  | 'toggleBlur'
+  | 'speedUp'
+  | 'speedDown'
+  | 'resetSpeed'
+  | 'skipForward'
+  | 'skipBackward'
+  | 'showInfo'
+  | 'showTitle'
+  | 'toggleArchive'
+  | 'toggleDebug'
+  | 'toggleControls'
+  | 'toggleOptions'
+  | 'exit';
+
+export const CONTROL_ACTIONS: readonly ControlAction[] = [
+  'playPause',
+  'next',
+  'previous',
+  'restart',
+  'toggleLoop',
+  'toggleMute',
+  'toggleCrossfade',
+  'toggleBlur',
+  'speedUp',
+  'speedDown',
+  'resetSpeed',
+  'skipForward',
+  'skipBackward',
+  'showInfo',
+  'showTitle',
+  'toggleArchive',
+  'toggleDebug',
+  'toggleControls',
+  'toggleOptions',
+  'exit',
+];
+
+/**
+ * The buttons of a controller in the browser's standard layout, named as on an
+ * Xbox controller, then the two sticks pushed in each direction.
+ */
+export const GAMEPAD_BUTTONS: readonly string[] = [
+  'A',
+  'B',
+  'X',
+  'Y',
+  'LB',
+  'RB',
+  'LT',
+  'RT',
+  'View',
+  'Menu',
+  'LS',
+  'RS',
+  'DpadUp',
+  'DpadDown',
+  'DpadLeft',
+  'DpadRight',
+  'Guide',
+  'LeftStickUp',
+  'LeftStickDown',
+  'LeftStickLeft',
+  'LeftStickRight',
+  'RightStickUp',
+  'RightStickDown',
+  'RightStickLeft',
+  'RightStickRight',
+];
+
+/** The keys or buttons bound to each action. An empty list leaves it unbound. */
+export type ControlBindings = Readonly<Record<ControlAction, readonly string[]>>;
+
+export interface ControlsConfig {
+  /** Key names: a character such as `N` or `?`, or a name such as `Space` or `ArrowUp`. */
+  readonly keyboard: ControlBindings;
+  /** Names from `GAMEPAD_BUTTONS`. */
+  readonly gamepad: ControlBindings;
+}
+
+/**
  * The fully resolved configuration. Every field is present and validated, so
  * consumers never need fallbacks: parsing happens exactly once, at the edge.
  */
@@ -349,6 +440,7 @@ export interface AppConfig {
   readonly blur: BlurConfig;
   readonly ui: UiConfig;
   readonly playback: PlaybackConfig;
+  readonly controls: ControlsConfig;
 }
 
 /**
@@ -357,7 +449,7 @@ export interface AppConfig {
  */
 export type ClientConfig = Pick<
   AppConfig,
-  'video' | 'timeouts' | 'retries' | 'crossfade' | 'blur' | 'ui' | 'playback'
+  'video' | 'timeouts' | 'retries' | 'crossfade' | 'blur' | 'ui' | 'playback' | 'controls'
 >;
 
 export const toClientConfig = (config: AppConfig): ClientConfig => ({
@@ -368,6 +460,7 @@ export const toClientConfig = (config: AppConfig): ClientConfig => ({
   blur: config.blur,
   ui: config.ui,
   playback: config.playback,
+  controls: config.controls,
 });
 
 /** A single problem found while normalising a user config file. */

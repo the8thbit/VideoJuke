@@ -3,6 +3,7 @@ import { systemClock } from '../../shared/time/clock';
 import { attempt } from '../../shared/types/result';
 import { createPlayerApp, toScreenRole } from '../core/app/playerApp';
 import { queryPlayerElements } from '../core/dom/elements';
+import { attachGamepadControls } from '../core/input/gamepad';
 import { attachKeyboardControls } from '../core/input/keyboard';
 import { waitForIpcBridge } from '../core/transport/ipcTransport';
 import { createLoadingScreen } from '../core/ui/loadingScreen';
@@ -51,6 +52,7 @@ const start = async (): Promise<void> => {
   }
 
   const app = createPlayerApp({
+    describeControls: true,
     api,
     logger: logger.child('app'),
     elements,
@@ -70,8 +72,18 @@ const start = async (): Promise<void> => {
     target: document,
     dispatch: app.dispatch,
     logger: logger.child('keyboard'),
+    bindings: () => app.controls().keyboard,
     // While the options panel is open its fields need the keys.
     isSuspended: app.isPanelOpen,
+  });
+
+  const detachGamepad = attachGamepadControls({
+    navigator,
+    dispatch: app.dispatch,
+    logger: logger.child('gamepad'),
+    bindings: () => app.controls().gamepad,
+    isPanelOpen: app.isPanelOpen,
+    navigatePanel: app.navigatePanel,
   });
 
   // `stop` mirrors the playback queue to the server one last time, which is
@@ -85,6 +97,7 @@ const start = async (): Promise<void> => {
   // the page away, so a mirror that is slow to send may not arrive at all.
   window.addEventListener('beforeunload', () => {
     detachKeyboard();
+    detachGamepad();
     app.stop();
   });
 

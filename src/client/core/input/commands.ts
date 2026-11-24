@@ -1,3 +1,5 @@
+import type { ControlAction } from '../../../shared/types/config';
+
 /**
  * The one vocabulary every input source speaks.
  *
@@ -46,3 +48,30 @@ export const PANEL_COMMANDS: readonly PlayerCommand[] = ['toggle-options', 'exit
 /** Whether an input source should pass a command on while its owner is suspended. */
 export const isPanelCommand = (command: PlayerCommand): boolean =>
   PANEL_COMMANDS.indexOf(command) !== -1;
+
+/**
+ * The command behind each bindable action. The two webOS-only commands, `stop`
+ * and `show-settings`, belong to fixed remote buttons and are not bindable.
+ */
+export const ACTION_COMMANDS: Readonly<Record<ControlAction, PlayerCommand>> = {
+  playPause: 'play-pause',
+  next: 'next',
+  previous: 'previous',
+  restart: 'restart',
+  toggleLoop: 'toggle-loop',
+  toggleMute: 'toggle-mute',
+  toggleCrossfade: 'toggle-crossfade',
+  toggleBlur: 'toggle-blur',
+  speedUp: 'speed-up',
+  speedDown: 'speed-down',
+  resetSpeed: 'reset-speed',
+  skipForward: 'skip-forward',
+  skipBackward: 'skip-backward',
+  showInfo: 'show-info',
+  showTitle: 'show-title',
+  toggleArchive: 'toggle-archive',
+  toggleDebug: 'toggle-debug',
+  toggleControls: 'toggle-controls',
+  toggleOptions: 'toggle-options',
+  exit: 'exit',
+};

@@ -1,36 +1,24 @@
+import { buildBindingTable, canonicalKeyName, type BindingTable } from '../../../shared/input/bindings';
+import type { ControlBindings } from '../../../shared/types/config';
 import type { Logger } from '../../../shared/types/logging';
-import { isPanelCommand, type CommandDispatcher, type PlayerCommand } from './commands';
+import {
+  ACTION_COMMANDS,
+  isPanelCommand,
+  type CommandDispatcher,
+  type PlayerCommand,
+} from './commands';
 
 /**
- * Keys the player answers, indexed by the lower-cased `event.key`.
- *
- * Keeping the bindings as data rather than as a switch means the table can be
- * read by anything that wants to describe the controls, and it is the reason a
- * key is looked up exactly once per event instead of being compared eighteen
- * times.
+ * The command a key press asks for under `bindings`, or null for a key that is
+ * not bound. `event.key` is compared in the same canonical spelling the config
+ * is stored in, so `n` and `N` match a binding of `N`, and a space matches
+ * `Space`.
  */
-export const KEY_COMMANDS: Readonly<Record<string, PlayerCommand>> = {
-  ' ': 'play-pause',
-  n: 'next',
-  p: 'previous',
-  r: 'restart',
-  l: 'toggle-loop',
-  m: 'toggle-mute',
-  f: 'toggle-crossfade',
-  b: 'toggle-blur',
-  a: 'toggle-archive',
-  arrowup: 'speed-up',
-  arrowdown: 'speed-down',
-  '0': 'reset-speed',
-  arrowright: 'skip-forward',
-  arrowleft: 'skip-backward',
-  i: 'show-info',
-  t: 'show-title',
-  q: 'toggle-debug',
-  o: 'toggle-options',
-  '?': 'toggle-controls',
-  '/': 'toggle-controls',
-  escape: 'exit',
+export const commandForKey = (table: BindingTable, key: string): PlayerCommand | null => {
+  const name = canonicalKeyName(key);
+  if (name === null) return null;
+  const action = table[name.toLowerCase()];
+  return action === undefined ? null : ACTION_COMMANDS[action];
 };
 
 /**
@@ -60,6 +48,8 @@ export const attachKeyboardControls = (options: {
   readonly target: Document;
   readonly dispatch: CommandDispatcher;
   readonly logger: Logger;
+  /** The keys in force, read on every press so a saved change applies at once. */
+  readonly bindings: () => ControlBindings;
   /**
    * True while the options panel is open. Only the commands that close it are
    * passed on, and every other key is left to the panel and the browser.
@@ -67,6 +57,18 @@ export const attachKeyboardControls = (options: {
   readonly isSuspended?: () => boolean;
 }): (() => void) => {
   const { target, dispatch, logger, isSuspended } = options;
+
+  // Rebuilt only when the settings object changes, which is only on a save.
+  let source: ControlBindings | null = null;
+  let table: BindingTable = {};
+  const currentTable = (): BindingTable => {
+    const bindings = options.bindings();
+    if (bindings !== source) {
+      source = bindings;
+      table = buildBindingTable(bindings);
+    }
+    return table;
+  };
 
   const onKeyDown = (event: KeyboardEvent): void => {
     // Something nearer the key - the options panel - has already answered it.
@@ -80,8 +82,8 @@ export const attachKeyboardControls = (options: {
     // `preventDefault` below.
     if (event.ctrlKey || event.metaKey || event.altKey) return;
 
-    const command = KEY_COMMANDS[event.key.toLowerCase()];
-    if (command === undefined) return;
+    const command = commandForKey(currentTable(), event.key);
+    if (command === null) return;
     if (isSuspended !== undefined && isSuspended() && !isPanelCommand(command)) return;
 
     // Only a bound key is swallowed, so the browser's own shortcuts still work.

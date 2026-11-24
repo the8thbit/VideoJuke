@@ -241,7 +241,7 @@ body {
 
 .controls-overlay {
   right: 20px;
-  width: 400px;
+  width: 460px;
   font-size: 14px;
   line-height: 1.6;
 }
@@ -269,6 +269,17 @@ body {
 .key {
   color: var(--vj-label);
   font-weight: bold;
+}
+
+/* A controller button beside the key that does the same thing. */
+.key.gamepad {
+  margin-left: 8px;
+  color: #86efac;
+}
+
+.controls-note {
+  font-size: 12px;
+  opacity: 0.75;
 }
 
 .panel::-webkit-scrollbar {

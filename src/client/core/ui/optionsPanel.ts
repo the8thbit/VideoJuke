@@ -20,6 +20,7 @@ import {
   type PipelineState,
   type ServiceStatus,
 } from '../../../shared/types/status';
+import { canonicalGamepadButton, canonicalKeyName } from '../../../shared/input/bindings';
 import { formatPercent } from '../../../shared/util/format';
 import { isPlainObject, readPath } from '../../../shared/util/objects';
 import { setClass } from '../dom/elements';
@@ -31,6 +32,20 @@ import { isEditableTarget } from '../input/keyboard';
  * options key, where Play becomes the way back to the video.
  */
 export type PanelMode = 'start' | 'playback';
+
+/**
+ * What a controller asks of the panel. The arrows move between controls (left
+ * and right instead change a drop-down), `activate` presses or toggles the
+ * focused one, and the section moves jump between section headings.
+ */
+export type PanelInput =
+  | 'up'
+  | 'down'
+  | 'left'
+  | 'right'
+  | 'activate'
+  | 'next-section'
+  | 'previous-section';
 
 export interface OptionsPanelDeps {
   readonly root: Document;
@@ -79,6 +94,8 @@ export interface OptionsPanel {
   readonly notifyRevision: (revision: number) => void;
   /** A line under the steps, for what the app itself has to say. */
   readonly showMessage: (message: string, isError: boolean) => void;
+  /** A controller's input while the panel is open. */
+  readonly navigate: (input: PanelInput) => void;
   readonly cleanup: () => void;
 }
 
@@ -106,6 +123,7 @@ const SECTION_ORDER: readonly (readonly [string, string])[] = [
   ['crossfade', 'Crossfade'],
   ['blur', 'Blur'],
   ['playback', 'Playback controls'],
+  ['controls', 'Keyboard and controller'],
   ['ui', 'On-screen messages'],
   ['audio', 'Audio'],
   ['performance', 'Transcoding performance'],
@@ -166,6 +184,16 @@ const HINTS: Readonly<Record<string, string>> = {
     'The default for each new session. The toggle on the Play button changes only this one.',
   'video.preprocessedQueueSize': 'Transcoded videos the server keeps ready.',
   'video.playbackQueueSize': 'Videos each screen keeps queued ahead of the one playing.',
+  'controls.keyboard':
+    'Keys for each action, separated by commas: a letter or digit, a character such as ?, or ' +
+    'a name such as Space, Comma, Enter, Escape, ArrowUp, PageDown or F5. Leave an action ' +
+    'empty to unbind it.',
+  'controls.gamepad':
+    'Buttons for each action, separated by commas, named as on an Xbox controller: A, B, X, ' +
+    'Y, LB, RB, LT, RT, View, Menu, LS, RS (the sticks pressed in), DpadUp, DpadDown, ' +
+    'DpadLeft, DpadRight, and LeftStickUp, RightStickLeft and so on for the sticks. In this ' +
+    'panel the D-pad and left stick move, A presses, B goes back, and LB and RB jump ' +
+    'between sections, whatever is bound here.',
   seasonalDirectories:
     'Edited as JSON: a list of { "directory", "likelihood", "conditions" } entries.',
 };
@@ -674,6 +702,42 @@ export const createOptionsPanel = (deps: OptionsPanelDeps): OptionsPanel => {
     appendHint(row, path);
   };
 
+  /**
+   * One action's keys or buttons as a comma-separated line, which is far easier
+   * to scan down than twenty little textareas. Names are checked as they are
+   * typed, so a button the controller does not have is caught before saving.
+   */
+  const renderBindings = (
+    path: string,
+    label: string,
+    value: readonly string[],
+    device: 'keyboard' | 'gamepad',
+    parent: HTMLElement,
+  ): void => {
+    const row = makeRow(path, label, parent);
+    const input = create('input', 'options-input options-binding');
+    input.type = 'text';
+    input.value = value.join(', ');
+    input.placeholder = 'not bound';
+    input.addEventListener('input', () => {
+      const parts = input.value.split(',');
+      const names: string[] = [];
+      for (let index = 0; index < parts.length; index += 1) {
+        const part = parts[index] as string;
+        if (part.replace(/\s+/g, '') === '') continue;
+        const name = device === 'keyboard' ? canonicalKeyName(part) : canonicalGamepadButton(part);
+        if (name === null) {
+          markInvalid(path, `${part.trim()} is not a controller button`);
+          return;
+        }
+        names.push(name);
+      }
+      record(path, names, value);
+    });
+    row.appendChild(input);
+    row.appendChild(create('div', 'options-field-error'));
+  };
+
   const renderDirectories = (value: readonly DirectoryConfig[], parent: HTMLElement): void => {
     const path = 'directories';
     const row = makeRow(path, 'Directories and their bias', parent);
@@ -791,6 +855,8 @@ export const createOptionsPanel = (deps: OptionsPanelDeps): OptionsPanel => {
         const group = create('div', 'options-group');
         group.appendChild(create('div', 'options-group-title', humanize(key)));
         parent.appendChild(group);
+        const groupHint = HINTS[path];
+        if (groupHint !== undefined) group.appendChild(create('div', 'options-hint', groupHint));
         renderFields(fieldShape, value, path, group);
         continue;
       }
@@ -805,6 +871,12 @@ export const createOptionsPanel = (deps: OptionsPanelDeps): OptionsPanel => {
         renderChoice(path, label, typeof value === 'string' ? value : fieldShape, choices, parent);
       } else if (typeof fieldShape === 'string') {
         renderText(path, label, typeof value === 'string' ? value : fieldShape, parent);
+      } else if (Array.isArray(fieldShape) && /^controls\.(keyboard|gamepad)\./.test(path)) {
+        const list = Array.isArray(value)
+          ? value.filter((item): item is string => typeof item === 'string')
+          : [];
+        const device = path.indexOf('controls.keyboard.') === 0 ? 'keyboard' : 'gamepad';
+        renderBindings(path, label, list, device, parent);
       } else if (Array.isArray(fieldShape)) {
         const list = Array.isArray(value)
           ? value.filter((item): item is string => typeof item === 'string')
@@ -1117,6 +1189,72 @@ export const createOptionsPanel = (deps: OptionsPanelDeps): OptionsPanel => {
 
   root.addEventListener('keydown', onKeyDown, true);
 
+  /** Steps a drop-down to its next or previous choice, as a viewer would. */
+  const stepSelect = (select: HTMLSelectElement, step: number): void => {
+    const count = select.options.length;
+    if (count === 0) return;
+    select.selectedIndex = (select.selectedIndex + step + count) % count;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+
+  /** Moves to the next or previous section heading, opening nothing. */
+  const jumpSection = (step: number): void => {
+    const list = focusables();
+    const headings = list.filter((element) => element.tagName.toLowerCase() === 'summary');
+    if (headings.length === 0) return;
+    const active = root.activeElement as HTMLElement | null;
+    const at = active === null ? -1 : list.indexOf(active);
+    let target: HTMLElement | undefined;
+    if (step > 0) target = headings.filter((heading) => list.indexOf(heading) > at)[0];
+    else {
+      const before = headings.filter((heading) => list.indexOf(heading) < at);
+      target = before[before.length - 1];
+    }
+    if (target === undefined) return;
+    target.focus();
+    if (typeof target.scrollIntoView === 'function') target.scrollIntoView(true);
+  };
+
+  const navigate = (input: PanelInput): void => {
+    if (!visible) return;
+    const active = root.activeElement as HTMLElement | null;
+    const focused = active !== null && container.contains(active) && active !== container ? active : null;
+    if (focused === null && input !== 'next-section' && input !== 'previous-section') {
+      // Nothing to act on yet: the first press only lands somewhere sensible.
+      focusLikelyStep();
+      return;
+    }
+    const tag = focused === null ? '' : focused.tagName.toLowerCase();
+
+    switch (input) {
+      case 'up':
+        moveFocus(-1);
+        return;
+      case 'down':
+        moveFocus(1);
+        return;
+      case 'left':
+      case 'right':
+        if (tag === 'select') stepSelect(focused as HTMLSelectElement, input === 'right' ? 1 : -1);
+        else moveFocus(input === 'right' ? 1 : -1);
+        return;
+      case 'activate':
+        if (tag === 'select') stepSelect(focused as HTMLSelectElement, 1);
+        else if (tag === 'button' || tag === 'summary') (focused as HTMLElement).click();
+        else if (tag === 'input' && (focused as HTMLInputElement).type === 'checkbox') {
+          (focused as HTMLInputElement).click();
+        }
+        // A text field has nothing to press: it is already focused for typing.
+        return;
+      case 'next-section':
+        jumpSection(1);
+        return;
+      case 'previous-section':
+        jumpSection(-1);
+        return;
+    }
+  };
+
   // --- Public ---------------------------------------------------------------
 
   const show = (): void => {
@@ -1172,6 +1310,7 @@ export const createOptionsPanel = (deps: OptionsPanelDeps): OptionsPanel => {
     },
 
     showMessage,
+    navigate,
 
     cleanup: () => {
       if (disposed) return;

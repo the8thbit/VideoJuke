@@ -1,5 +1,6 @@
 import { createStore } from '../../../shared/state/store';
-import type { ClientConfig } from '../../../shared/types/config';
+import { DEFAULT_CONFIG } from '../../../shared/config/defaults';
+import type { ClientConfig, ControlsConfig } from '../../../shared/types/config';
 import type { Logger } from '../../../shared/types/logging';
 import type {
   LeaderState,
@@ -24,7 +25,8 @@ import { createPlaybackQueue, type PlaybackQueue } from '../queue/playbackQueue'
 import { createConnectionIndicator, type ConnectionState } from '../ui/connectionIndicator';
 import { createDebugPanel, type DebugPanel, type DebugSnapshot } from '../ui/debugPanel';
 import { createLoadingScreen, type LoadingScreen } from '../ui/loadingScreen';
-import { createOptionsPanel, type OptionsPanel } from '../ui/optionsPanel';
+import { renderControlsGuide } from '../ui/controlsGuide';
+import { createOptionsPanel, type OptionsPanel, type PanelInput } from '../ui/optionsPanel';
 import { createOverlayAnchor, type OverlayAnchor } from '../ui/overlayAnchor';
 import { createOverlays, type Overlays } from '../ui/overlays';
 import {
@@ -69,6 +71,11 @@ export interface PlayerAppOptions {
   readonly onConnectionChange?: (state: ConnectionState) => void;
   /** Whether the arrow keys move between the options panel's controls: the TV. */
   readonly arrowNavigation?: boolean;
+  /**
+   * Whether the controls overlay is drawn from `controls` in the settings. The
+   * TV keeps its own remote guide, since its buttons are not configurable.
+   */
+  readonly describeControls?: boolean;
 }
 
 export interface PlayerApp {
@@ -80,6 +87,10 @@ export interface PlayerApp {
   readonly dispatch: CommandDispatcher;
   /** Whether the options panel has the keys, so input sources can stand aside. */
   readonly isPanelOpen: () => boolean;
+  /** The bindings in force: the saved ones once read, the defaults before. */
+  readonly controls: () => ControlsConfig;
+  /** A controller's input while the options panel is open. */
+  readonly navigatePanel: (input: PanelInput) => void;
   readonly stop: () => void;
 }
 
@@ -191,6 +202,9 @@ const createLiveConfig = (read: () => ClientConfig): ClientConfig => ({
   },
   get playback() {
     return read().playback;
+  },
+  get controls() {
+    return read().controls;
   },
 });
 
@@ -1099,6 +1113,14 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
    * setting behind it is the thing that changed - then the new default wins,
    * since that is evidently what was just asked for.
    */
+  const describeControls = (config: ClientConfig): void => {
+    const guide = elements.controlsOverlay;
+    if (options.describeControls !== true || guide === null) return;
+    // A server older than the bindings sends none; its guide stays as written.
+    if (config.controls === undefined) return;
+    renderControlsGuide(guide, config.controls);
+  };
+
   const refreshConfig = async (current: Session): Promise<void> => {
     const fetched = await attemptAsync(() => api.getConfig());
     if (stopped || session !== current) return;
@@ -1111,6 +1133,7 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
     const next = fetched.value;
     settings = next;
     logger.info('settings updated');
+    describeControls(next);
     if (previous === null) return;
 
     const snapshot = current.player.snapshot();
@@ -1311,6 +1334,7 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
 
     const initial = loaded.value;
     settings = initial;
+    describeControls(initial);
     const config = createLiveConfig(() => settings ?? initial);
     reportConnection('connected');
 
@@ -1452,6 +1476,10 @@ export const createPlayerApp = (options: PlayerAppOptions): PlayerApp => {
     start,
     dispatch,
     isPanelOpen: () => session !== null && session.panel.isVisible(),
+    controls: () => settings?.controls ?? DEFAULT_CONFIG.controls,
+    navigatePanel: (input) => {
+      if (session !== null && !stopped) session.panel.navigate(input);
+    },
     stop,
   };
 };

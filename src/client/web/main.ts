@@ -3,6 +3,7 @@ import { systemClock } from '../../shared/time/clock';
 import { attempt } from '../../shared/types/result';
 import { createPlayerApp } from '../core/app/playerApp';
 import { queryPlayerElements } from '../core/dom/elements';
+import { attachGamepadControls } from '../core/input/gamepad';
 import { attachKeyboardControls } from '../core/input/keyboard';
 import { createHttpTransport } from '../core/transport/httpTransport';
 import { createLoadingScreen } from '../core/ui/loadingScreen';
@@ -62,6 +63,7 @@ const start = (): void => {
   });
 
   const app = createPlayerApp({
+    describeControls: true,
     api: transport,
     logger: logger.child('app'),
     elements,
@@ -82,12 +84,23 @@ const start = (): void => {
     target: document,
     dispatch: app.dispatch,
     logger: logger.child('keyboard'),
+    bindings: () => app.controls().keyboard,
     // While the options panel is open its fields need the keys.
     isSuspended: app.isPanelOpen,
   });
 
+  const detachGamepad = attachGamepadControls({
+    navigator,
+    dispatch: app.dispatch,
+    logger: logger.child('gamepad'),
+    bindings: () => app.controls().gamepad,
+    isPanelOpen: app.isPanelOpen,
+    navigatePanel: app.navigatePanel,
+  });
+
   window.addEventListener('beforeunload', () => {
     detachKeyboard();
+    detachGamepad();
     // Order matters: stopping the app mirrors the playback queue to the server,
     // which needs the transport still open to send it.
     app.stop();

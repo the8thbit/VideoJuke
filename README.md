@@ -20,7 +20,7 @@ VideoJuke supports two deployment modes:
 - **Queue Management**: Intelligent preprocessing queue with automatic refilling
 - **Seasonal Directories**: Time-based conditional video selection with configurable probability
 - **Real-time Communication**: WebSocket updates for server status and progress
-- **Keyboard Controls**: Full playback control without mouse interaction
+- **Keyboard and Controller**: Full playback control without a mouse, from the keyboard or an Xbox controller, with every binding configurable
 - **Session Persistence**: Maintains queue and history across restarts
 - **Access Control**: A shared token, generated on first run, guards the web server
 - **Multi-Screen Sync**: One screen leads and the rest mirror it
@@ -241,7 +241,7 @@ videojuke/
 │       │   ├── player/         # Stage, video player, crossfade, blur
 │       │   ├── queue/          # Client-side playback queue
 │       │   ├── ui/             # Loading screen, overlays, debug panel
-│       │   ├── input/          # Commands, keyboard, TV remote
+│       │   ├── input/          # Commands, keyboard, controller, TV remote
 │       │   ├── transport/      # PlayerApi over IPC and over HTTP
 │       │   └── app/            # The orchestrator every entry point uses
 │       ├── electron/           # Renderer entry, preload, page
@@ -586,7 +586,11 @@ default) and the list is cleared.
 Run it with the player stopped. Moving a file out from under a running player
 that may be about to transcode it is not a surprise worth arranging.
 
-## Keyboard Controls
+## Keyboard and Controller
+
+The defaults are below; every binding can be changed (see
+[Changing the bindings](#changing-the-bindings)). Press `?` or View on the
+controller for the list currently in force.
 
 ### Playback
 - `Space` - Play/Pause
@@ -619,6 +623,73 @@ that may be about to transcode it is not a surprise worth arranging.
 While the options panel is open, the player's other keys are paused so that
 typing into a field cannot skip a video. On the TV the direction pad moves
 between the panel's controls and OK activates them.
+
+### Xbox Controller
+
+Plug the controller in, or pair it over Bluetooth or the wireless adapter. A
+browser only notices a controller once one of its buttons has been pressed
+with the page focused; the desktop app does the same.
+
+| Button | Playback | Options panel |
+|---|---|---|
+| A | Play/Pause | Press the focused button, toggle a checkbox, step a drop-down |
+| B | Show title only | Back to the video |
+| X | Show video info | |
+| Y | Toggle mute | |
+| LB / RB | Previous / next video | Jump to the previous / next section |
+| LT | Restart video | |
+| RT | Toggle blur | |
+| D-pad ← / → | Skip backward / forward (held: repeats) | Move between controls; change a drop-down |
+| D-pad ↑ / ↓ | Speed up / down (held: repeats) | Move between controls |
+| Left stick | | Same as the D-pad |
+| LS (press) | Toggle loop | |
+| RS (press) | Reset speed | |
+| View | Show the controls list | |
+| Menu | Open or close the options panel | Same |
+
+Crossfade, archiving, the debug overlay and quitting have no button by
+default. The panel's own controller layout is fixed, so a bad binding can never
+leave the one screen that fixes bindings impossible to move around in.
+
+In a browser, the first video after Play waits for a click or key press
+before it starts with sound; a controller button does not count as one, since
+browsers only accept a click or a key for that. The desktop app has no such
+wait.
+
+### Changing the bindings
+
+Open the options panel (`O`, or Menu on the controller) and the **Keyboard
+and controller** section lists every action with its keys and its buttons,
+separated by commas. Leave one empty to unbind it. Changes apply as soon as
+they are saved. In config.json they live under `controls`:
+
+```json
+"controls": {
+  "keyboard": {
+    "next": ["N", "PageDown"],
+    "exit": []
+  },
+  "gamepad": {
+    "toggleArchive": ["Guide"]
+  }
+}
+```
+
+Actions left out keep their defaults. Key names are a single character (`N`,
+`0`, `?`; letters ignore Shift), or a name such as `Space`, `Comma`, `Enter`,
+`Escape`, `Tab`, `ArrowUp`, `PageDown`, `Home` or `F5`; any other name the
+browser reports for a key works too. Controller buttons are `A`, `B`, `X`,
+`Y`, `LB`, `RB`, `LT`, `RT`, `View`, `Menu`, `LS`, `RS`, `Guide`, `DpadUp`,
+`DpadDown`, `DpadLeft`, `DpadRight`, and the sticks pushed in a direction as
+`LeftStickUp` … `RightStickRight`. `Start`, `Back`, `L1`/`R1` and the like are
+understood as well. A name bound to two actions goes to the one listed first,
+and the problem is shown in the panel.
+
+The actions are `playPause`, `next`, `previous`, `restart`, `toggleLoop`,
+`toggleMute`, `toggleCrossfade`, `toggleBlur`, `speedUp`, `speedDown`,
+`resetSpeed`, `skipForward`, `skipBackward`, `showInfo`, `showTitle`,
+`toggleArchive`, `toggleDebug`, `toggleControls`, `toggleOptions` and `exit`.
+The TV remote's buttons are fixed and are not affected.
 
 ## API Reference (Web Mode)
 
