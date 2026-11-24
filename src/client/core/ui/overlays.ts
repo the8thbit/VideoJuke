@@ -31,6 +31,9 @@ export interface Overlays {
 
 const VISIBLE_CLASS = 'visible';
 
+/** How long the favorite badge stays up: long enough to read, short enough not to linger. */
+const FAVORITE_DISPLAY_MS = 1000;
+
 interface TimedOverlay {
   readonly show: (durationMs: number) => void;
   readonly hide: () => void;
@@ -142,7 +145,7 @@ export const createOverlays = (deps: OverlaysDeps): Overlays => {
       setText(favoriteElement.label, added ? 'Added to favorites' : 'Removed from favorites');
       setClass(favoriteElement.box, 'added', added);
       setClass(favoriteElement.box, 'removed', !added);
-      favorite.show(Math.max(1500, config.timeouts.statusDisplayDuration));
+      favorite.show(FAVORITE_DISPLAY_MS);
     },
 
     toggleControls: () => {
