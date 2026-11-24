@@ -81,6 +81,43 @@ On anything other than Windows `npm run setup` explains itself and does nothing:
 a Start Menu is a Windows idea. Point your desktop environment's launcher at
 `node scripts/launch.mjs` instead.
 
+### Windows Installer
+
+To put VideoJuke on a machine without Node, Git or a copy of the source, build
+an installer on a machine that has them:
+
+```bash
+npm install
+npm run package:electron
+```
+
+That writes `release/VideoJuke Setup 1.0.0.exe` (about 120 MB, ffmpeg
+included). Copy it to the other machine and run it. It installs for the current
+user only, so it needs no administrator rights, and it lets you pick the
+folder. The installer is not code-signed, so Windows SmartScreen will warn
+about it the first time: choose **More info**, then **Run anyway**.
+
+Installed, VideoJuke keeps its settings, video index and transcodes in
+`%LOCALAPPDATA%\VideoJuke` rather than beside the program, so they survive
+reinstalling and uninstalling; delete that folder to start from scratch. It
+opens on the start screen with no directories; add yours in the options panel
+(`O`), then press **Index**, **Queue** and **Play**.
+
+What the installed copy does not do:
+
+- **Update itself.** Build a new installer from the updated source and run it
+  over the old install; settings and the library are kept.
+- **Run the web server or `npm run archive`.** Those need the source checkout.
+
+Both the installer and `npm run setup` create a Start Menu entry called
+**VideoJuke**, so use one or the other on a given machine: installing replaces
+the setup shortcut, and uninstalling removes it.
+
+The build refuses to package anything from your own working folder - your
+`config.json` with its access token, the index of your library, your history or
+your transcodes - and stops with an error if a change to `build.files` in
+`package.json` ever lets one in (`scripts/check-package.mjs`).
+
 ### Development Mode
 
 ```bash

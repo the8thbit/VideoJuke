@@ -72,6 +72,9 @@ const toWindowOptions = (startFullscreen: boolean): BrowserWindowConstructorOpti
     contextIsolation: true,
     nodeIntegration: false,
     sandbox: true,
+    // A jukebox keeps playing when nobody is looking; see the media switch in
+    // main.ts for why this matters to pictures in particular.
+    backgroundThrottling: false,
   },
 });
 

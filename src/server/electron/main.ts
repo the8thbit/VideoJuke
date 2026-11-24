@@ -8,8 +8,8 @@
  * explicit bootstrap.
  */
 import { app, BrowserWindow } from 'electron';
-import { unwatchFile, watchFile, type Stats } from 'fs';
-import { resolve } from 'path';
+import { mkdirSync, unwatchFile, watchFile, type Stats } from 'fs';
+import { join, resolve } from 'path';
 
 import { DEFAULT_CONFIG } from '../../shared/config/defaults';
 import { createStore } from '../../shared/state/store';
@@ -59,6 +59,16 @@ const watchConfigFile = (path: string, onChange: () => void): (() => void) => {
 
 const isDevMode = process.argv.includes('--dev');
 
+/**
+ * Chromium pauses silent video on a page it believes nobody can see - the
+ * window covered, or the screen locked - to save power. A picture or an
+ * animated GIF is played as a silent clip, so a jukebox on a screen that had
+ * gone to its lock screen froze on the first one that came up and never moved
+ * on. Videos with sound were spared only because Chromium leaves audible media
+ * alone. Switches must be set before the app is ready.
+ */
+app.commandLine.appendSwitch('disable-background-media-suspend');
+
 /** `--role=follower` on the command line; empty means a screen that plays alone. */
 const roleArgument = (): string => {
   const found = process.argv.find((argument) => argument.startsWith('--role='));
@@ -89,10 +99,37 @@ interface ActiveWindow {
   readonly disposeIpc: () => void;
 }
 
+/**
+ * Where config.json, the cache and the temp directory live.
+ *
+ * Run from a checkout, that is the working directory, as it always has been,
+ * which is what lets one checkout serve different libraries from different
+ * folders. Installed, the working directory is wherever the shortcut happened
+ * to start the process - usually the install folder, which the next update
+ * replaces wholesale - so user data gets a folder of its own that survives
+ * updates and uninstalls.
+ *
+ * On Windows that is `%LOCALAPPDATA%\VideoJuke`: local rather than roaming,
+ * because the temp directory holds gigabytes of transcodes that have no
+ * business following a profile between machines. Not Electron's `userData`
+ * folder itself, which already holds Chromium's profile - including a `Cache`
+ * folder that, on a case-insensitive filesystem, is the same folder as ours.
+ */
+const userDataDirectory = (): string => {
+  if (!app.isPackaged) return process.cwd();
+  const local = process.env['LOCALAPPDATA'];
+  const directory =
+    process.platform === 'win32' && local !== undefined && local !== ''
+      ? join(local, app.getName())
+      : join(app.getPath('userData'), 'library');
+  mkdirSync(directory, { recursive: true });
+  return directory;
+};
+
 const bootstrap = async (): Promise<void> => {
-  // User data follows the working directory, as it always has; the shipped
-  // defaults are read from wherever the compiled bundle lives.
-  const workingDirectory = process.cwd();
+  // The shipped defaults are read from wherever the compiled bundle lives -
+  // inside app.asar once installed, which Electron reads like a folder.
+  const workingDirectory = userDataDirectory();
   const installDirectory = resolve(__dirname, '..', '..', '..');
 
   // Two resolutions: the config file lives at a fixed place under the root, and

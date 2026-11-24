@@ -20,10 +20,23 @@ import { parseNumber, parseRationalNumber } from '../../shared/util/numbers';
 import { isAnimatedGif } from '../../shared/video/gif';
 import { firstWebpFrame } from '../../shared/video/webp';
 
+/**
+ * Where a bundled binary can actually be run from.
+ *
+ * In the installed app the packages live inside `app.asar`, an archive Electron
+ * can read files out of but Windows cannot start a process from. The installer
+ * unpacks the two binaries beside it (`asarUnpack` in package.json) into
+ * `app.asar.unpacked`, at the same relative path, and the packages still report
+ * the archive path - so it is rewritten here. Outside a package the path has no
+ * `app.asar` in it and is returned unchanged.
+ */
+export const toRunnablePath = (path: string): string =>
+  path.replace(/([\\/])app\.asar([\\/])/, '$1app.asar.unpacked$2');
+
 if (typeof ffmpegStatic === 'string') {
-  ffmpeg.setFfmpegPath(ffmpegStatic);
+  ffmpeg.setFfmpegPath(toRunnablePath(ffmpegStatic));
 }
-ffmpeg.setFfprobePath(ffprobeStatic.path);
+ffmpeg.setFfprobePath(toRunnablePath(ffprobeStatic.path));
 
 export interface TranscodeProgress {
   /** Completion in the range 0..1, or null when ffmpeg cannot estimate it. */

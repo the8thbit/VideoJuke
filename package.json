@@ -52,7 +52,12 @@
       "dist/**/*",
       "config.default.json",
       "package.json",
-      "!**/*.map"
+      "!**/*.map",
+      "!node_modules/ffprobe-static/bin/darwin/**",
+      "!node_modules/ffprobe-static/bin/linux/**",
+      "!node_modules/ffprobe-static/bin/win32/ia32/**",
+      "!node_modules/fluent-ffmpeg/coverage/**",
+      "!node_modules/fluent-ffmpeg/doc/**"
     ],
     "mac": {
       "category": "public.app-category.video"
@@ -62,6 +67,17 @@
     },
     "linux": {
       "target": "AppImage"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**",
+      "node_modules/ffprobe-static/**"
+    ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "afterPack": "scripts/check-package.mjs"
   }
 }

@@ -2,8 +2,33 @@ import assert from 'node:assert/strict';
 import { constants } from 'node:os';
 import { describe, it } from 'node:test';
 
-import { PRIORITY_VALUES, isRecoverableAudioError, toVideoMetadata } from '../src/server/infra/ffmpeg';
+import {
+  PRIORITY_VALUES,
+  isRecoverableAudioError,
+  toRunnablePath,
+  toVideoMetadata,
+} from '../src/server/infra/ffmpeg';
 import type { FfprobeData } from 'fluent-ffmpeg';
+
+describe('bundled binary paths', () => {
+  it('points an installed app at the unpacked copy beside its archive', () => {
+    assert.equal(
+      toRunnablePath('C:\\Apps\\VideoJuke\\resources\\app.asar\\node_modules\\ffmpeg-static\\ffmpeg.exe'),
+      'C:\\Apps\\VideoJuke\\resources\\app.asar.unpacked\\node_modules\\ffmpeg-static\\ffmpeg.exe',
+    );
+    assert.equal(
+      toRunnablePath('/opt/VideoJuke/resources/app.asar/node_modules/ffprobe-static/bin/linux/x64/ffprobe'),
+      '/opt/VideoJuke/resources/app.asar.unpacked/node_modules/ffprobe-static/bin/linux/x64/ffprobe',
+    );
+  });
+
+  it('leaves a checkout, or a folder merely named like an archive, alone', () => {
+    const checkout = 'C:\\code\\videojuke\\node_modules\\ffmpeg-static\\ffmpeg.exe';
+    assert.equal(toRunnablePath(checkout), checkout);
+    assert.equal(toRunnablePath('/x/app.asar.unpacked/ffmpeg'), '/x/app.asar.unpacked/ffmpeg');
+    assert.equal(toRunnablePath('/x/my-app.asar/ffmpeg'), '/x/my-app.asar/ffmpeg');
+  });
+});
 
 describe('process priority mapping', () => {
   it('lowers and raises in the directions the names promise', () => {
