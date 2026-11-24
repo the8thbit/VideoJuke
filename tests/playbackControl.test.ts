@@ -99,6 +99,56 @@ const play = async (h: Harness, video: QueuedVideo, isFirst = false) => {
 const activeOf = (h: Harness): FakeVideoElement =>
   h.elements.find((element) => element.classes.has('visible')) ?? h.elements[0];
 
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+describe('sound at the start of a video', () => {
+  it('comes on once a slow element finally starts moving', async () => {
+    // The regression: the unmute looked once, 100ms after play(), and gave up
+    // for good if the position had not moved yet - so a video whose decoder
+    // took a little longer played to its end in silence.
+    const h = harness();
+    await play(h, queued('a'), true);
+    const active = activeOf(h);
+    assert.equal(active.muted, true, 'starts muted, for the autoplay policy');
+
+    await wait(350);
+    assert.equal(active.muted, true, 'still muted while nothing has played');
+
+    active.currentTime = 0.2;
+    await wait(250);
+    assert.equal(active.muted, false, 'the sound comes on once it is running');
+    assert.equal(h.player.snapshot().muted, false);
+    h.player.cleanup();
+  });
+
+  it('stays silent when the viewer muted it', async () => {
+    const h = harness();
+    await play(h, queued('a'), true);
+    const active = activeOf(h);
+    h.player.toggleMute();
+    active.currentTime = 0.2;
+    await wait(250);
+    assert.equal(active.muted, true);
+    h.player.cleanup();
+  });
+
+  it('comes on when a video paused before its sound did is resumed', async () => {
+    const h = harness();
+    await play(h, queued('a'), true);
+    const active = activeOf(h);
+    h.player.setPaused(true);
+    await wait(250);
+    assert.equal(active.muted, true);
+
+    h.player.setPaused(false);
+    await settle();
+    active.currentTime = 0.2;
+    await wait(250);
+    assert.equal(active.muted, false);
+    h.player.cleanup();
+  });
+});
+
 describe('pause and resume', () => {
   it('pauses the element and stops it ending on its own', async () => {
     const h = harness();

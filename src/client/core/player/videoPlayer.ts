@@ -103,6 +103,16 @@ export interface VideoPlayer {
 const UNMUTE_DELAY_MS = 100;
 
 /**
+ * How long the unmute keeps waiting for an element that has not visibly started.
+ *
+ * It used to look once, 100ms after `play()`, and give up if the position had
+ * not moved yet. A large file, a busy disk or a decoder still warming up easily
+ * takes longer than that, and the video then played to the end in silence - with
+ * the mute toggle insisting the sound was on. It now looks again every 100ms.
+ */
+const UNMUTE_GIVE_UP_MS = 15000;
+
+/**
  * How close to the end counts as ended. Some files never fire `ended` at all,
  * so the legacy player watched `timeupdate` for the last tenth of a second and
  * finished the video itself; that watchdog is kept.
@@ -478,17 +488,25 @@ export const createVideoPlayer = (deps: VideoPlayerDeps): VideoPlayer => {
   const scheduleUnmute = (element: HTMLVideoElement, restoreVolume: boolean): void => {
     clearUnmuteTimer();
     if (state.get().muted) return;
+    const giveUpAt = Date.now() + UNMUTE_GIVE_UP_MS;
 
-    unmuteTimer = setTimeout(() => {
-      unmuteTimer = null;
-      // Only once the element is demonstrably running: unmuting one that never
-      // started is what made the policy refuse a second time.
-      if (element.paused || element.currentTime === 0) return;
-      if (state.get().muted) return;
-      element.muted = false;
-      // During a crossfade the fade owns the volume ramp.
-      if (restoreVolume) element.volume = 1;
-    }, UNMUTE_DELAY_MS);
+    const check = (): void => {
+      unmuteTimer = setTimeout(() => {
+        unmuteTimer = null;
+        if (state.get().muted || !hasSource(element)) return;
+        // Only once the element is demonstrably running: unmuting one that never
+        // started is what made the policy refuse a second time. Not running yet
+        // is not the same as never: look again rather than leave it silent.
+        if (element.paused || element.currentTime === 0) {
+          if (Date.now() < giveUpAt) check();
+          return;
+        }
+        element.muted = false;
+        // During a crossfade the fade owns the volume ramp.
+        if (restoreVolume) element.volume = 1;
+      }, UNMUTE_DELAY_MS);
+    };
+    check();
   };
 
   const startElement = async (
@@ -876,6 +894,9 @@ export const createVideoPlayer = (deps: VideoPlayerDeps): VideoPlayer => {
         return;
       }
       patch({ paused: false });
+      // Paused before its sound came on, the element is still muted and the
+      // unmute may have given up waiting; resuming is when it can finish.
+      if (!state.get().muted && element.muted) scheduleUnmute(element, running === null);
       scheduleNextCrossfade();
     });
   };
