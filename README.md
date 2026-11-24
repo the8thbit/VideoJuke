@@ -12,6 +12,7 @@ VideoJuke supports two deployment modes:
 
 - **Random Video Playback**: Continuously plays videos from multiple configured directories
 - **Selection Biases**: Weight each directory, and tilt picks towards shorter or longer videos
+- **Pictures**: Images in your directories play too, each held on screen for 2.5 seconds
 - **Start Screen & Options Panel**: Index, queue and play on request, and edit every setting from the player, even mid-video
 - **Smart Preprocessing**: Audio normalization and format optimization for smooth playback
 - **Crossfade Transitions**: Smooth blending between videos with configurable timing
@@ -104,6 +105,10 @@ npm run dev:web
      ]
    }
    ```
+
+   Only the files directly inside each directory are indexed. To include
+   subfolders, list them as directories of their own or set
+   `files.recursive` to `true`; see [Images and Scanning](#images-and-scanning).
 
 3. **Network Configuration** (Web Mode Only):
    ```json
@@ -330,6 +335,38 @@ within each directory's share and leaves the shares alone.
 **Startup.** `autoQueueAfterIndex` and `autoPlayAfterQueue` set the auto queue
 and auto play toggles each new session starts with; see
 [Start Screen and Options](#start-screen-and-options).
+
+### Images and Scanning
+
+```json
+{
+  "images": {
+    "enabled": true,
+    "displayDuration": 2500,
+    "extensions": [".jpg", ".jpeg", ".png", ".webp", ".bmp"]
+  },
+  "files": { "recursive": false }
+}
+```
+
+**Images.** Pictures in the configured directories are indexed alongside the
+videos and picked the same way. When one comes up it stays on screen for
+`displayDuration` milliseconds (2.5 seconds by default) and playback moves on,
+crossfading if crossfades are on. Each picture is rendered into a short silent
+clip when it is queued, so it plays on every client, the TV included. Large
+pictures are scaled to fit 1080p. WebP is supported, lossy and lossless; an
+animated WebP is shown as its first frame. With the length bias on, a picture
+counts as an average-length video. Set `enabled` to `false` to leave pictures
+out of the index.
+
+**Recursive scanning.** By default only the files directly inside each
+configured directory are indexed, not those in its subfolders. Set
+`files.recursive` to `true` to index whole folder trees, which is how earlier
+versions behaved; an existing library that relies on subfolders needs this
+switched on, or its subfolders listed as directories of their own.
+
+Changing `images.enabled`, `images.extensions` or `files.recursive` re-indexes
+the library; changing `displayDuration` only rebuilds the queue.
 
 ### Network Configuration (Web Mode)
 
@@ -1247,7 +1284,7 @@ videos/
 - **esbuild** - Bundles the three browser clients
 - **electron**, **electron-builder** - Desktop shell and installers
 
-Directory scanning uses Node's own recursive `readdir`, file types come from
+Directory scanning uses Node's own `readdir`, file types come from
 the configurable extension list, and the browser is opened with a three-line
 platform command, so `glob`, `mime-types` and `open` are no longer needed.
 

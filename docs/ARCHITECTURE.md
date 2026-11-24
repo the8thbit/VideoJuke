@@ -158,6 +158,26 @@ which puts exactly `maxRatio` between the ends and is a straight line on a log
 scale. Lengths come from ffprobe during indexing and are cached with the index;
 an unknown length gets `sqrt(maxRatio)`, the geometric middle.
 
+## Images
+
+A picture is an indexed file like any other; `shared/video/mediaKind.ts` tells
+it apart by extension, a video extension winning if one is listed as both.
+Rather than teach the player a second kind of media, the preprocessor renders
+each picture into a silent H.264 clip of `images.displayDuration`
+(`MediaToolkit.renderImage`), fitted inside 1080p with even dimensions. From
+there the queue, crossfades, streaming, history and multi-screen sync all see a
+short video. The clip is probed for its metadata, not the source: a JPEG probes
+as a 0.04 second clip.
+
+The same misreading is why a picture is never measured for the length bias. A
+scan records its length as unknown, which keeps it out of the length range and
+weighs it in the middle, like an average video.
+
+The bundled ffmpeg cannot decode animated WebP, and looped as an image input it
+retries for ever. `shared/video/webp.ts` lifts the first frame out of the RIFF
+container into a still WebP, which is rendered instead; image renders are also
+capped at a minute whatever `transcodeTimeout` allows.
+
 ## What the server will act on
 
 A video record is three strings and some metadata, and two of those strings are

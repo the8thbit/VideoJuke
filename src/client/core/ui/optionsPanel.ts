@@ -99,6 +99,8 @@ const KEY_ESCAPE = 27;
 const SECTION_ORDER: readonly (readonly [string, string])[] = [
   ['directories', 'Video directories'],
   ['selection', 'Selection'],
+  ['images', 'Images'],
+  ['files', 'Files and scanning'],
   ['startup', 'Startup'],
   ['video', 'Queue and history'],
   ['crossfade', 'Crossfade'],
@@ -107,7 +109,6 @@ const SECTION_ORDER: readonly (readonly [string, string])[] = [
   ['ui', 'On-screen messages'],
   ['audio', 'Audio'],
   ['performance', 'Transcoding performance'],
-  ['files', 'Files'],
   ['seasonalDirectories', 'Seasonal directories'],
   ['timeouts', 'Timeouts (milliseconds)'],
   ['retries', 'Retries'],
@@ -116,7 +117,7 @@ const SECTION_ORDER: readonly (readonly [string, string])[] = [
 ];
 
 /** Sections open when the panel is first drawn. */
-const OPEN_SECTIONS: readonly string[] = ['directories', 'selection', 'startup'];
+const OPEN_SECTIONS: readonly string[] = ['directories', 'selection', 'images', 'files', 'startup'];
 
 /** Fields the panel never shows. The token is the key to the API itself. */
 const HIDDEN_PATHS: readonly string[] = ['network.server.authToken'];
@@ -148,6 +149,16 @@ const HINTS: Readonly<Record<string, string>> = {
   'selection.lengthBias.favor': 'Which end of the length range is favoured.',
   'selection.lengthBias.maxRatio':
     'How many times likelier the most favoured length is than the least favoured one.',
+  'images.enabled':
+    'Index pictures as well as videos. Each one is shown for the display duration and ' +
+    'then playback moves on.',
+  'images.displayDuration': 'How long each picture stays on screen, in milliseconds.',
+  'images.extensions':
+    'An animated WebP is shown as its first frame. Changing this list re-indexes the library.',
+  'files.recursive':
+    'Also index everything in the subfolders of each directory. Off, only the files ' +
+    'directly inside it are indexed; add a subfolder as a directory of its own to play it.',
+  'files.supportedVideoExtensions': 'Changing this list re-indexes the library.',
   'startup.autoQueueAfterIndex':
     'The default for each new session. The toggle on the Queue button changes only this one.',
   'startup.autoPlayAfterQueue':

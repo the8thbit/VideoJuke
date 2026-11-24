@@ -160,6 +160,12 @@ export const DEFAULT_CONFIG: AppConfig = {
       '.mts',
       '.m2ts',
     ],
+    recursive: false,
+  },
+  images: {
+    enabled: true,
+    displayDuration: 2500,
+    extensions: ['.jpg', '.jpeg', '.png', '.webp', '.bmp'],
   },
   crossfade: {
     enabled: false,

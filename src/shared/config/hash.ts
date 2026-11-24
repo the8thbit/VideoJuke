@@ -29,7 +29,13 @@ export const indexRelevantConfigFingerprint = (config: AppConfig): string =>
       likelihood: entry.likelihood,
       conditions: entry.conditions,
     })),
-    files: { supportedVideoExtensions: config.files.supportedVideoExtensions },
+    files: {
+      supportedVideoExtensions: config.files.supportedVideoExtensions,
+      recursive: config.files.recursive,
+    },
+    // How long an image is shown is decided when it is preprocessed, so it is
+    // left out: changing it needs a fresh queue, not a fresh scan.
+    images: { enabled: config.images.enabled, extensions: config.images.extensions },
   });
 
 /**

@@ -10,6 +10,7 @@ import type {
   CrossfadeConfig,
   DirectoryConfig,
   FilesConfig,
+  ImagesConfig,
   LengthBiasConfig,
   LoudnessTarget,
   NetworkConfig,
@@ -380,6 +381,15 @@ const readSystem = (source: RawField, base: SystemConfig): SystemConfig => {
   };
 };
 
+const readExtension = (itemContext: DecodeContext, item: unknown): string | null => {
+  if (typeof item !== 'string' || item.trim() === '') {
+    itemContext.report('warning', 'ignoring an extension that is not a non-empty string');
+    return null;
+  }
+  const normalized = item.trim().toLowerCase();
+  return normalized.startsWith('.') ? normalized : `.${normalized}`;
+};
+
 const readFiles = (source: RawField, base: FilesConfig): FilesConfig => {
   const pick = openSection(source);
   const extensions = pick('supportedVideoExtensions');
@@ -387,16 +397,23 @@ const readFiles = (source: RawField, base: FilesConfig): FilesConfig => {
     supportedVideoExtensions: readArray(
       extensions.context,
       extensions.value,
-      (itemContext, item) => {
-        if (typeof item !== 'string' || item.trim() === '') {
-          itemContext.report('warning', 'ignoring an extension that is not a non-empty string');
-          return null;
-        }
-        const normalized = item.trim().toLowerCase();
-        return normalized.startsWith('.') ? normalized : `.${normalized}`;
-      },
+      readExtension,
       base.supportedVideoExtensions,
     ),
+    recursive: bool(pick('recursive'), base.recursive),
+  };
+};
+
+/** Long enough to be seen, short enough that a typo cannot park one for hours. */
+const IMAGE_DISPLAY_DURATION: NumberOptions = { min: 500, max: 600000 };
+
+const readImages = (source: RawField, base: ImagesConfig): ImagesConfig => {
+  const pick = openSection(source);
+  const extensions = pick('extensions');
+  return {
+    enabled: bool(pick('enabled'), base.enabled),
+    displayDuration: num(pick('displayDuration'), base.displayDuration, IMAGE_DISPLAY_DURATION),
+    extensions: readArray(extensions.context, extensions.value, readExtension, base.extensions),
   };
 };
 
@@ -570,6 +587,7 @@ export const normalizeConfig = (
     retries: readRetries(pick('retries'), base.retries),
     system: readSystem(pick('system'), base.system),
     files: readFiles(pick('files'), base.files),
+    images: readImages(pick('images'), base.images),
     crossfade: readCrossfade(pick('crossfade'), base.crossfade),
     blur: readBlur(pick('blur'), base.blur),
     ui: readUi(pick('ui'), base.ui),

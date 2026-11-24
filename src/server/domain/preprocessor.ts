@@ -1,13 +1,14 @@
 import { createSerialTask } from '../../shared/state/store';
 import type { Clock } from '../../shared/time/clock';
 import { asProcessedVideoPath, type VideoId } from '../../shared/types/brand';
-import type { AppConfig } from '../../shared/types/config';
+import type { AppConfig, ProcessPriority } from '../../shared/types/config';
 import type { Logger } from '../../shared/types/logging';
 import { err, ok, type Result } from '../../shared/types/result';
 import type { IndexedVideo, PreprocessedVideo, VideoMetadata } from '../../shared/types/video';
 import { formatFileSize, formatPercent } from '../../shared/util/format';
 import { computeCrossfadeTiming, toCrossfadeSettings } from '../../shared/video/crossfadeTiming';
 import { planTranscode, resolvePerformanceSettings } from '../../shared/video/encoding';
+import { isImagePath } from '../../shared/video/mediaKind';
 import { isRecoverableAudioError, type MediaToolkit } from '../infra/ffmpeg';
 import type { FileSystem } from '../infra/fileSystem';
 import type { AppPaths } from '../infra/paths';
@@ -21,6 +22,14 @@ import { transcodeFileName } from './videoPaths';
  * player failed to load one.
  */
 export const MINIMUM_OUTPUT_BYTES = 1024;
+
+/**
+ * The longest an image render may take, whatever `transcodeTimeout` allows.
+ * Rendering a picture takes a second or two; one ffmpeg cannot decode is looped
+ * as an input and retried for ever, and would otherwise hold the queue for the
+ * full timeout meant for transcoding a long film.
+ */
+export const IMAGE_RENDER_TIMEOUT_MS = 60000;
 
 /** ffmpeg emits progress continuously; only quarter marks reach the log. */
 const PROGRESS_LOG_STEPS = 4;
@@ -134,6 +143,52 @@ export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
     );
   };
 
+  /**
+   * An image becomes a silent clip of `images.displayDuration`, and is then
+   * described by probing that clip rather than the source: the player needs the
+   * clip's real length to end it and blend out of it on time, and a probe of
+   * the JPEG itself reports a single 0.04 second frame.
+   */
+  const preprocessImage = async (
+    video: IndexedVideo,
+    config: AppConfig,
+    priority: ProcessPriority,
+  ): Promise<Result<PreprocessedVideo, Error>> => {
+    const outputPath = joinPath(deps.paths.tempDirectory, transcodeFileName(deps.newVideoId()));
+    deps.logger.debug(`rendering the image ${video.filename} into ${outputPath}`);
+
+    const rendered = await deps.media.renderImage({
+      inputPath: video.originalPath,
+      outputPath,
+      durationSeconds: config.images.displayDuration / 1000,
+      priority,
+      timeoutMs: Math.min(config.timeouts.transcodeTimeout, IMAGE_RENDER_TIMEOUT_MS),
+    });
+    if (!rendered.ok) {
+      await deps.fileSystem.remove(outputPath);
+      return err(new Error(`failed to render ${video.filename}: ${rendered.error.message}`));
+    }
+
+    const verified = await verifyOutput(outputPath, video.filename);
+    if (!verified.ok) return verified;
+
+    const probed = await deps.media.probe(outputPath, config.timeouts.probeTimeout);
+    if (!probed.ok) {
+      await deps.fileSystem.remove(outputPath);
+      return err(new Error(`failed to probe the render of ${video.filename}: ${probed.error.message}`));
+    }
+    const metadata = probed.value;
+    deps.logger.debug(`rendered ${video.filename} (${formatFileSize(verified.value)})`);
+
+    return ok({
+      ...video,
+      processedPath: asProcessedVideoPath(outputPath),
+      processedAt: deps.clock.nowIso(),
+      metadata,
+      crossfadeTiming: computeCrossfadeTiming(metadata.duration, toCrossfadeSettings(config)),
+    });
+  };
+
   const runPreprocess = async (video: IndexedVideo): Promise<Result<PreprocessedVideo, Error>> => {
     const config = deps.config();
     const performance = resolvePerformanceSettings(config.performance);
@@ -141,6 +196,10 @@ export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
     // The pause comes before the work rather than after it, so a queue fill
     // spaces its transcodes out instead of running them back to back.
     await deps.delay(performance.processingDelay);
+
+    if (isImagePath(video.originalPath, config)) {
+      return preprocessImage(video, config, performance.priority);
+    }
 
     const probed = await deps.media.probe(video.originalPath, config.timeouts.probeTimeout);
     if (!probed.ok) {

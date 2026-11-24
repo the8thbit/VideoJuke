@@ -159,6 +159,18 @@
       ".ts",
       ".mts",
       ".m2ts"
+    ],
+    "recursive": false
+  },
+  "images": {
+    "enabled": true,
+    "displayDuration": 2500,
+    "extensions": [
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".webp",
+      ".bmp"
     ]
   },
   "crossfade": {

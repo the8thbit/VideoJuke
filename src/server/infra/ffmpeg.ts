@@ -1,3 +1,4 @@
+import { promises as fs } from 'fs';
 import { constants, setPriority } from 'os';
 
 import ffmpeg, { type FfprobeData, type FfprobeStream } from 'fluent-ffmpeg';
@@ -16,6 +17,7 @@ import type {
 import { classifyAudioProfile, deriveChannelLayout } from '../../shared/video/audioProfile';
 import type { TranscodePlan } from '../../shared/video/encoding';
 import { parseNumber, parseRationalNumber } from '../../shared/util/numbers';
+import { firstWebpFrame } from '../../shared/video/webp';
 
 if (typeof ffmpegStatic === 'string') {
   ffmpeg.setFfmpegPath(ffmpegStatic);
@@ -36,6 +38,16 @@ export interface TranscodeRequest {
   readonly onProgress?: (progress: TranscodeProgress) => void;
 }
 
+/** A still image to render into a clip that holds it on screen. */
+export interface ImageRenderRequest {
+  readonly inputPath: string;
+  readonly outputPath: string;
+  /** How long the clip lasts, in seconds. */
+  readonly durationSeconds: number;
+  readonly priority: ProcessPriority;
+  readonly timeoutMs: number;
+}
+
 export interface MediaToolkitDeps {
   readonly logger: Logger;
 }
@@ -43,6 +55,7 @@ export interface MediaToolkitDeps {
 export interface MediaToolkit {
   readonly probe: (path: string, timeoutMs: number) => Promise<Result<VideoMetadata>>;
   readonly transcode: (request: TranscodeRequest) => Promise<Result<void>>;
+  readonly renderImage: (request: ImageRenderRequest) => Promise<Result<void>>;
   /**
    * Kills every ffmpeg still running and refuses to start more.
    *
@@ -193,6 +206,38 @@ const applyPlan = (command: ffmpeg.FfmpegCommand, plan: TranscodePlan): ffmpeg.F
 };
 
 /**
+ * The picture is fitted inside 1080p and given even dimensions, which H.264 in
+ * 4:2:0 requires: a 4000-pixel photo would otherwise produce a stream larger
+ * than many TVs will decode, and an odd width is refused outright. Rounding to
+ * even leaves a pixel aspect a hair off square, which players then honour by
+ * stretching the picture a pixel wide, so it is reset to square.
+ */
+const IMAGE_FILTER =
+  "scale=w='min(1920,iw)':h='min(1080,ih)':force_original_aspect_ratio=decrease," +
+  'scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,format=yuv420p';
+
+/**
+ * Loops the one frame for the requested length and encodes it, silently.
+ *
+ * Video is re-encoded here rather than copied, because there is no video
+ * stream to copy: `stillimage` tunes x264 for a picture that never moves, which
+ * keeps a few seconds of it to a few hundred kilobytes. There is no audio
+ * track at all; the player's volume ramps simply have nothing to act on.
+ */
+const applyImagePlan = (
+  command: ffmpeg.FfmpegCommand,
+  durationSeconds: number,
+): ffmpeg.FfmpegCommand =>
+  command
+    .inputOptions(['-loop 1', '-framerate 30'])
+    .videoFilters(IMAGE_FILTER)
+    .videoCodec('libx264')
+    .noAudio()
+    .duration(durationSeconds)
+    .format('mp4')
+    .outputOptions(['-preset veryfast', '-tune stillimage', '-crf 20', '-movflags +faststart']);
+
+/**
  * `performance.priority` in the units the OS wants.
  *
  * `high` deliberately maps to *above* normal rather than to the highest class
@@ -294,13 +339,100 @@ export const createMediaToolkit = (deps: MediaToolkitDeps): MediaToolkit => {
     timeoutMs,
     onProgress,
   }: TranscodeRequest): Promise<Result<void>> =>
+    run({
+      build: () => applyPlan(ffmpeg(inputPath), plan),
+      inputPath,
+      outputPath,
+      priority: plan.performance.priority,
+      timeoutMs,
+      onProgress,
+    });
+
+  /**
+   * The file ffmpeg should read for an image: the image itself, or for an
+   * animated WebP - which this ffmpeg cannot decode - a still of its first
+   * frame written beside the output, with the means to remove it again.
+   */
+  const stillSourceFor = async (
+    inputPath: string,
+    outputPath: string,
+  ): Promise<{ readonly path: string; readonly cleanUp: () => Promise<void> }> => {
+    const unchanged = { path: inputPath, cleanUp: async () => undefined };
+    if (!inputPath.toLowerCase().endsWith('.webp')) return unchanged;
+
+    const bytes = await attemptRead(inputPath);
+    const frame = bytes === null ? null : firstWebpFrame(bytes);
+    if (frame === null) return unchanged;
+
+    const framePath = `${outputPath}.frame.webp`;
+    await fs.writeFile(framePath, frame);
+    logger.debug(`${inputPath} is an animated WebP; showing its first frame`);
+    return {
+      path: framePath,
+      cleanUp: async () => {
+        await fs.rm(framePath, { force: true });
+      },
+    };
+  };
+
+  const attemptRead = async (path: string): Promise<Uint8Array | null> => {
+    try {
+      return await fs.readFile(path);
+    } catch {
+      // ffmpeg will fail on the same file and say why; nothing to add here.
+      return null;
+    }
+  };
+
+  const renderImage = async ({
+    inputPath,
+    outputPath,
+    durationSeconds,
+    priority,
+    timeoutMs,
+  }: ImageRenderRequest): Promise<Result<void>> => {
+    let source: Awaited<ReturnType<typeof stillSourceFor>>;
+    try {
+      source = await stillSourceFor(inputPath, outputPath);
+    } catch (thrown) {
+      return err(toError(thrown));
+    }
+    try {
+      return await run({
+        build: () => applyImagePlan(ffmpeg(source.path), durationSeconds),
+        inputPath,
+        outputPath,
+        priority,
+        timeoutMs,
+      });
+    } finally {
+      await source.cleanUp().catch(() => undefined);
+    }
+  };
+
+  /** Runs one ffmpeg to completion: deadline, priority, shutdown and cleanup. */
+  const run = ({
+    build,
+    inputPath,
+    outputPath,
+    priority,
+    timeoutMs,
+    onProgress,
+  }: {
+    readonly build: () => ffmpeg.FfmpegCommand;
+    readonly inputPath: string;
+    readonly outputPath: string;
+    readonly priority: ProcessPriority;
+    readonly timeoutMs: number;
+    readonly onProgress?: (progress: TranscodeProgress) => void;
+  }): Promise<Result<void>> =>
     new Promise<Result<void>>((resolve) => {
       if (stopped) {
         resolve(err(new Error('the media toolkit is shutting down')));
         return;
       }
 
-      const command = applyPlan(ffmpeg(inputPath), plan);
+      const command = build();
       let settled = false;
 
       const finish = (result: Result<void>): void => {
@@ -334,7 +466,7 @@ export const createMediaToolkit = (deps: MediaToolkitDeps): MediaToolkit => {
             command.kill('SIGKILL');
             return;
           }
-          applyPriority(command, plan.performance.priority);
+          applyPriority(command, priority);
         })
         .on('progress', (progress) => {
           const percent = typeof progress.percent === 'number' ? progress.percent : null;
@@ -357,5 +489,5 @@ export const createMediaToolkit = (deps: MediaToolkitDeps): MediaToolkit => {
     }
   };
 
-  return { probe, transcode, shutdown };
+  return { probe, transcode, renderImage, shutdown };
 };

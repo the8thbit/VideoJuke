@@ -232,6 +232,28 @@ export interface SystemConfig {
 export interface FilesConfig {
   /** Lower-case extensions including the leading dot. */
   readonly supportedVideoExtensions: readonly string[];
+  /**
+   * Whether indexing descends into the subfolders of each configured
+   * directory. Off by default: only the files directly inside it are indexed,
+   * and a subfolder is added as a directory of its own when it should play.
+   */
+  readonly recursive: boolean;
+}
+
+/**
+ * Still images, played as clips of a fixed length.
+ *
+ * An image is rendered into a short silent video when it is preprocessed, so
+ * everything downstream - the queue, crossfades, streaming, multi-screen sync -
+ * handles it exactly as it handles a video.
+ */
+export interface ImagesConfig {
+  /** Whether images are indexed at all. */
+  readonly enabled: boolean;
+  /** How long an image stays on screen, in milliseconds. */
+  readonly displayDuration: number;
+  /** Lower-case extensions including the leading dot. */
+  readonly extensions: readonly string[];
 }
 
 export interface CrossfadeConfig {
@@ -322,6 +344,7 @@ export interface AppConfig {
   readonly retries: RetriesConfig;
   readonly system: SystemConfig;
   readonly files: FilesConfig;
+  readonly images: ImagesConfig;
   readonly crossfade: CrossfadeConfig;
   readonly blur: BlurConfig;
   readonly ui: UiConfig;

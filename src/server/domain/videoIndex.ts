@@ -14,13 +14,15 @@ import {
   type LengthBiasConfig,
 } from '../../shared/types/config';
 import type { Logger } from '../../shared/types/logging';
+import { ok, type Result } from '../../shared/types/result';
 import type { IndexedVideo } from '../../shared/types/video';
 import type { RandomSource } from '../../shared/util/arrays';
 import { sumBy, uniqueBy } from '../../shared/util/arrays';
 import { ratio } from '../../shared/util/numbers';
 import { isFiniteNumber } from '../../shared/util/numbers';
 import { isPlainObject, readProperty } from '../../shared/util/objects';
-import type { FileSystem } from '../infra/fileSystem';
+import { indexedExtensions, isImagePath } from '../../shared/video/mediaKind';
+import type { DirectoryListing, FileSystem } from '../infra/fileSystem';
 import type { AppPaths } from '../infra/paths';
 import { directoryOf, fileNameOf } from './pathText';
 import { isPathInside, type VideoPathGuard } from './videoPaths';
@@ -396,17 +398,27 @@ export const createVideoIndex = (deps: VideoIndexDeps): VideoIndex => {
    * never an aborted build: one unplugged drive must not cost the user every
    * other library they have configured.
    */
+  const listDirectory = async (
+    directory: string,
+    recursive: boolean,
+  ): Promise<Result<DirectoryListing>> => {
+    if (recursive) return fileSystem.listFilesRecursively(directory);
+    const files = await fileSystem.listFiles(directory);
+    return files.ok ? ok({ files: files.value, unreadable: [] }) : files;
+  };
+
   const scanDirectory = async (
     directory: string,
     seasonalDirectory: string | null,
     extensions: readonly string[],
+    recursive: boolean,
   ): Promise<{ readonly videos: readonly IndexedVideo[]; readonly complete: boolean }> => {
     if (!(await fileSystem.exists(directory))) {
       logger.warn(`skipping ${directory}: the directory does not exist`);
       return { videos: [], complete: false };
     }
 
-    const listed = await fileSystem.listFilesRecursively(directory);
+    const listed = await listDirectory(directory, recursive);
     if (!listed.ok) {
       logger.warn(`skipping ${directory}: ${listed.error.message}`);
       return { videos: [], complete: false };
@@ -431,7 +443,8 @@ export const createVideoIndex = (deps: VideoIndexDeps): VideoIndex => {
     // One config value for the whole scan, so a reload part-way through cannot
     // produce a snapshot that half of the fingerprint describes.
     const current = config();
-    const extensions = current.files.supportedVideoExtensions;
+    const extensions = indexedExtensions(current);
+    const recursive = current.files.recursive;
     const directories = uniqueBy(directoryPaths(current), (directory) => directory);
     const seasonalDirectories = uniqueBy(
       current.seasonalDirectories.map((entry) => entry.directory),
@@ -480,7 +493,7 @@ export const createVideoIndex = (deps: VideoIndexDeps): VideoIndex => {
 
     for (const directory of directories) {
       report(scanShare * ratio(scanned, total), `Scanning: ${fileNameOf(directory)}`);
-      const result = await scanDirectory(directory, null, extensions);
+      const result = await scanDirectory(directory, null, extensions, recursive);
       complete = complete && result.complete;
       // Appended one at a time because spreading a directory holding tens of
       // thousands of files into push() overflows the argument stack.
@@ -495,7 +508,7 @@ export const createVideoIndex = (deps: VideoIndexDeps): VideoIndex => {
 
     for (const directory of seasonalDirectories) {
       report(scanShare * ratio(scanned, total), `Scanning: ${fileNameOf(directory)}`);
-      const result = await scanDirectory(directory, directory, extensions);
+      const result = await scanDirectory(directory, directory, extensions, recursive);
       complete = complete && result.complete;
       seasonal[directory] = result.videos.filter((entry) => !isArchived(entry.originalPath));
       scanned += 1;
@@ -513,6 +526,14 @@ export const createVideoIndex = (deps: VideoIndexDeps): VideoIndex => {
     const previous = state.get().durations;
     const durations: Record<string, number | null> = {};
     for (const path of allPaths(scannedSnapshot)) {
+      // An image has no length of its own - ffprobe calls a JPEG a 0.04 second
+      // clip, which would make it the shortest thing in the library and drag
+      // the whole length range down with it. Recording it as unknown keeps it
+      // out of the range and weighs it in the middle, like an average video.
+      if (isImagePath(path, current)) {
+        durations[path] = null;
+        continue;
+      }
       const known = previous[path];
       if (known !== undefined) durations[path] = known;
     }
