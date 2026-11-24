@@ -1,4 +1,3 @@
-import { createSerialTask } from '../../shared/state/store';
 import type { Clock } from '../../shared/time/clock';
 import { asProcessedVideoPath, type VideoId } from '../../shared/types/brand';
 import type { AppConfig, ProcessPriority } from '../../shared/types/config';
@@ -7,7 +6,11 @@ import { err, ok, type Result } from '../../shared/types/result';
 import type { IndexedVideo, PreprocessedVideo, VideoMetadata } from '../../shared/types/video';
 import { formatFileSize, formatPercent } from '../../shared/util/format';
 import { computeCrossfadeTiming, toCrossfadeSettings } from '../../shared/video/crossfadeTiming';
-import { planTranscode, resolvePerformanceSettings } from '../../shared/video/encoding';
+import {
+  describeTranscodePlan,
+  planTranscode,
+  resolvePerformanceSettings,
+} from '../../shared/video/encoding';
 import { isImagePath } from '../../shared/video/mediaKind';
 import { isRecoverableAudioError, type MediaToolkit } from '../infra/ffmpeg';
 import type { FileSystem } from '../infra/fileSystem';
@@ -31,6 +34,43 @@ export const MINIMUM_OUTPUT_BYTES = 1024;
  */
 export const IMAGE_RENDER_TIMEOUT_MS = 60000;
 
+/**
+ * Runs at most `limit()` tasks at once, the rest waiting in arrival order. The
+ * limit is read whenever a slot frees up, so a settings change applies to the
+ * next transcode without waiting for the queue to drain.
+ */
+export const createTaskLimiter = (limit: () => number) => {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+
+  const release = (): void => {
+    active -= 1;
+    while (waiting.length > 0 && active < Math.max(1, limit())) {
+      active += 1;
+      (waiting.shift() as () => void)();
+    }
+  };
+
+  const acquire = (): Promise<void> => {
+    if (active < Math.max(1, limit())) {
+      active += 1;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => waiting.push(resolve));
+  };
+
+  return {
+    run: async <T>(task: () => Promise<T>): Promise<T> => {
+      await acquire();
+      try {
+        return await task();
+      } finally {
+        release();
+      }
+    },
+  };
+};
+
 /** ffmpeg emits progress continuously; only quarter marks reach the log. */
 const PROGRESS_LOG_STEPS = 4;
 
@@ -46,9 +86,24 @@ export interface PreprocessorDeps {
   readonly config: () => AppConfig;
 }
 
-export interface Preprocessor {
-  readonly preprocess: (video: IndexedVideo) => Promise<Result<PreprocessedVideo, Error>>;
+/** Where one video has got to, for the queue's progress line. */
+export interface PreprocessStage {
+  /** What is being done, in a few words: "Copying", "Normalizing loudness". */
+  readonly label: string;
+  /** 0..1 while ffmpeg is running and can tell; null otherwise. */
+  readonly progress: number | null;
 }
+
+export interface Preprocessor {
+  readonly preprocess: (
+    video: IndexedVideo,
+    onStage?: (stage: PreprocessStage) => void,
+  ) => Promise<Result<PreprocessedVideo, Error>>;
+}
+
+type StageReporter = (stage: PreprocessStage) => void;
+
+const IGNORE_STAGE: StageReporter = () => undefined;
 
 /**
  * Turns an indexed source file into a transcoded one.
@@ -59,18 +114,17 @@ export interface Preprocessor {
  */
 export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
   /**
-   * One ffmpeg at a time, across every caller.
+   * At most `performance.parallelTranscodes` ffmpegs at a time, across every
+   * caller.
    *
-   * The queue fill is exclusive with itself, but `ensurePlayable` - the server's
+   * The queue fill is not the only caller: `ensurePlayable` - the server's
    * answer to the viewer pressing "previous" on a video whose transcode has been
-   * swept - runs outside that lock. A step back during a background fill
-   * therefore started a second ffmpeg, and each one had been handed the full
-   * `maxThreads` budget, so the machine ran at twice the CPU the user had
-   * configured as its limit. Serialising here rather than at the queue keeps the
-   * viewer's request waiting behind at most one transcode instead of an entire
-   * fill.
+   * swept - runs beside it. Limiting here rather than at the queue keeps the
+   * total to what the user configured however many callers there are, and
+   * keeps the viewer's request waiting behind a few transcodes at most rather
+   * than an entire fill.
    */
-  const transcodes = createSerialTask();
+  const transcodes = createTaskLimiter(() => deps.config().performance.parallelTranscodes);
 
   const runTranscode = (
     video: IndexedVideo,
@@ -78,16 +132,25 @@ export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
     config: AppConfig,
     outputPath: string,
     compatibilityMode: boolean,
+    onStage: StageReporter,
+    allowCopy = true,
   ): Promise<Result<void, Error>> => {
     let loggedSteps = 0;
+    const plan = planTranscode(metadata.audio, config, { compatibilityMode, allowCopy });
+    const label = compatibilityMode
+      ? 'Retrying with stereo audio'
+      : describeTranscodePlan(plan);
+    onStage({ label, progress: null });
+    if (plan.copyAudio) deps.logger.debug(`${video.filename} needs no audio work; copying it`);
 
     return deps.media.transcode({
       inputPath: video.originalPath,
       outputPath,
-      plan: planTranscode(metadata.audio, config, { compatibilityMode }),
+      plan,
       timeoutMs: config.timeouts.transcodeTimeout,
       onProgress: ({ progress }) => {
         if (progress === null) return;
+        onStage({ label, progress });
         const step = Math.floor(progress * PROGRESS_LOG_STEPS);
         if (step <= loggedSteps) return;
         loggedSteps = step;
@@ -108,6 +171,7 @@ export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
     metadata: VideoMetadata,
     config: AppConfig,
     outputPath: string,
+    onStage: StageReporter,
   ): Promise<Result<void, Error>> => {
     if (attempt.ok || !isRecoverableAudioError(attempt.error.message, video.originalPath)) {
       return attempt;
@@ -117,7 +181,7 @@ export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
       `audio error transcoding ${video.filename}, retrying in compatibility mode: ` +
         attempt.error.message,
     );
-    return runTranscode(video, metadata, config, outputPath, true);
+    return runTranscode(video, metadata, config, outputPath, true, onStage);
   };
 
   /** Returns the size of the verified output, in bytes. */
@@ -154,9 +218,11 @@ export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
     video: IndexedVideo,
     config: AppConfig,
     priority: ProcessPriority,
+    onStage: StageReporter,
   ): Promise<Result<PreprocessedVideo, Error>> => {
     const outputPath = joinPath(deps.paths.tempDirectory, transcodeFileName(deps.newVideoId()));
     deps.logger.debug(`rendering the image ${video.filename} into ${outputPath}`);
+    onStage({ label: 'Rendering the image', progress: null });
 
     const rendered = await deps.media.renderImage({
       inputPath: video.originalPath,
@@ -191,7 +257,10 @@ export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
     });
   };
 
-  const runPreprocess = async (video: IndexedVideo): Promise<Result<PreprocessedVideo, Error>> => {
+  const runPreprocess = async (
+    video: IndexedVideo,
+    onStage: StageReporter,
+  ): Promise<Result<PreprocessedVideo, Error>> => {
     const config = deps.config();
     const performance = resolvePerformanceSettings(config.performance);
 
@@ -200,9 +269,10 @@ export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
     await deps.delay(performance.processingDelay);
 
     if (isImagePath(video.originalPath, config)) {
-      return preprocessImage(video, config, performance.priority);
+      return preprocessImage(video, config, performance.priority, onStage);
     }
 
+    onStage({ label: 'Reading', progress: null });
     const probed = await deps.media.probe(video.originalPath, config.timeouts.probeTimeout);
     if (!probed.ok) {
       return err(new Error(`failed to probe ${video.filename}: ${probed.error.message}`));
@@ -214,8 +284,25 @@ export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
     const outputPath = joinPath(deps.paths.tempDirectory, transcodeFileName(deps.newVideoId()));
     deps.logger.debug(`preprocessing ${video.filename} into ${outputPath}`);
 
-    const attempt = await runTranscode(video, metadata, config, outputPath, false);
-    const transcoded = await retryIfRecoverable(attempt, video, metadata, config, outputPath);
+    const first = await runTranscode(video, metadata, config, outputPath, false, onStage);
+    // A copy ffmpeg refuses - a stream the MP4 container will not take as it is
+    // - is not a reason to give up on the file: the full chain re-encodes it.
+    const attempt =
+      first.ok || !planTranscode(metadata.audio, config, { compatibilityMode: false }).copyAudio
+        ? first
+        : await (async () => {
+            deps.logger.warn(`copying ${video.filename} failed, transcoding it instead: ${first.error.message}`);
+            await deps.fileSystem.remove(outputPath);
+            return runTranscode(video, metadata, config, outputPath, false, onStage, false);
+          })();
+    const transcoded = await retryIfRecoverable(
+      attempt,
+      video,
+      metadata,
+      config,
+      outputPath,
+      onStage,
+    );
     if (!transcoded.ok) {
       // ffmpeg leaves whatever it had written when it gave up. Nothing references
       // it, so it would sit in the temp directory until the hourly sweep noticed
@@ -241,5 +328,10 @@ export const createPreprocessor = (deps: PreprocessorDeps): Preprocessor => {
     });
   };
 
-  return { preprocess: (video) => transcodes.run(() => runPreprocess(video)) };
+  return {
+    preprocess: (video, onStage = IGNORE_STAGE) => {
+      onStage({ label: 'Waiting for a free slot', progress: null });
+      return transcodes.run(() => runPreprocess(video, onStage));
+    },
+  };
 };

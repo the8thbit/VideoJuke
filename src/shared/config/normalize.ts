@@ -122,6 +122,7 @@ const FRACTION: NumberOptions = { min: 0, max: 1 };
 const PORT: NumberOptions = { min: 1, max: 65535, integer: true };
 const CHANNELS: NumberOptions = { min: 1, max: 8, integer: true };
 const THREADS: NumberOptions = { min: 1, max: 8, integer: true };
+const PARALLEL_TRANSCODES: NumberOptions = { min: 1, max: 4, integer: true };
 const PROCESSING_DELAY: NumberOptions = { min: 0, max: 10000 };
 const THREAD_QUEUE_SIZE: NumberOptions = { min: 128, max: 2048, integer: true };
 /** The range Chromium accepts for `playbackRate`; outside it playback stalls. */
@@ -206,6 +207,11 @@ const readPerformance = (source: RawField, base: PerformanceConfig): Performance
   const presets = openSection(pick('presets'));
   return {
     mode: choice(pick('mode'), PERFORMANCE_MODES, base.mode),
+    parallelTranscodes: num(
+      pick('parallelTranscodes'),
+      base.parallelTranscodes,
+      PARALLEL_TRANSCODES,
+    ),
     cpuLimiting: readCpuLimiting(pick('cpuLimiting'), base.cpuLimiting),
     // Presets get the same bounds as cpuLimiting because switching mode copies
     // one straight into it.

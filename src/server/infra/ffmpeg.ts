@@ -223,6 +223,14 @@ export const isRecoverableAudioError = (message: string, inputPath = ''): boolea
 };
 
 const applyPlan = (command: ffmpeg.FfmpegCommand, plan: TranscodePlan): ffmpeg.FfmpegCommand => {
+  if (plan.copyAudio) {
+    return command
+      .videoCodec('copy')
+      .audioCodec('copy')
+      .format('mp4')
+      .outputOptions([...plan.outputOptions]);
+  }
+
   const withAudio = command
     .audioFilters([...plan.audioFilters])
     .videoCodec('copy')

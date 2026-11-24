@@ -485,14 +485,21 @@ Transcoding is the only CPU-hungry thing VideoJuke does, and it happens in the
 background while you are watching. These settings decide how much of the machine
 it is allowed to take.
 
+The picture is never re-encoded; preparing a video means reading it, working
+on its audio (loudness normalization and the 5.1 upmix), and writing the result
+to the temp directory. When a file's audio needs none of that - normalization is
+off, it is already AAC, and it already has the channels asked for - it is copied
+as it is, which takes only as long as copying the file.
+
 ```json
 {
   "performance": {
     "mode": "balanced",
+    "parallelTranscodes": 2,
     "cpuLimiting": {
       "enabled": true,
       "maxThreads": 2,
-      "processingDelay": 1000,
+      "processingDelay": 0,
       "threadQueueSize": 512,
       "priority": "normal"
     }
@@ -502,6 +509,9 @@ it is allowed to take.
 
 - `mode`: `"quiet"`, `"balanced"` or `"performance"`, selecting one of the
   presets under `performance.presets`.
+- `parallelTranscodes`: 1 to 4, how many videos are prepared at once. The audio
+  filters mostly keep a single core busy, so two files side by side finish far
+  sooner than one file given more threads. Set it to 1 for a quiet machine.
 - `cpuLimiting.enabled`: when `true`, this block replaces the selected preset
   outright rather than merging into it.
 - `maxThreads`: 1 to 8, passed to ffmpeg as `-threads`. At `1`, encoder quality
@@ -514,8 +524,11 @@ it is allowed to take.
   makes the whole machine unresponsive. On Linux, raising priority needs
   privileges, so `"high"` there logs a warning and carries on at normal.
 
-Only one transcode ever runs at a time, so `maxThreads` is the real ceiling on
-how many cores are in use.
+Up to `parallelTranscodes` run at once, each with up to `maxThreads` threads.
+
+While the queue is being prepared, the status under its bar lists each video
+being worked on, what is being done to it (reading, copying, normalizing
+loudness, upmixing to 5.1, rendering an image) and how far along it is.
 
 ## Access Control
 

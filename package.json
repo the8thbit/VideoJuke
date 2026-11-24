@@ -1,6 +1,6 @@
 {
   "name": "videojuke",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "A random video player with queue management and smooth transitions",
   "main": "dist/server/electron/main.js",
   "author": "",

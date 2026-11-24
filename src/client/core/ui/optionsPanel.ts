@@ -198,6 +198,9 @@ const HINTS: Readonly<Record<string, string>> = {
     'off. An index that no longer matches the settings still waits for Index.',
   'video.preprocessedQueueSize': 'Transcoded videos the server keeps ready.',
   'video.playbackQueueSize': 'Videos each screen keeps queued ahead of the one playing.',
+  'performance.parallelTranscodes':
+    'How many videos are prepared at once, 1 to 4. Two side by side finish far sooner ' +
+    'than one; use 1 to keep the machine quiet.',
   'video.updateInterval':
     'How often, in milliseconds, the video directories are checked for new and removed ' +
     'videos (300000 is five minutes). The check runs alongside playback, and an index ' +
@@ -627,9 +630,17 @@ export const createOptionsPanel = (deps: OptionsPanelDeps): OptionsPanel => {
       describePhase(pipeline.index, 'Find the videos in the configured directories.'),
     );
 
+    // Once the step is done the rest of the queue is still built in the
+    // background; the server's message then lists those videos below its first
+    // line, and they go under the live count.
+    const backgroundLines =
+      pipeline.queue.status === 'done' ? pipeline.queue.message.split('\n').slice(1) : [];
     const queued =
       status !== null && pipeline.queue.status === 'done'
-        ? `${status.preprocessedQueue.current} of ${status.preprocessedQueue.target} videos prepared`
+        ? [
+            `${status.preprocessedQueue.current} of ${status.preprocessedQueue.target} videos prepared`,
+            ...backgroundLines,
+          ].join('\n')
         : null;
     renderStep(
       queueStep,

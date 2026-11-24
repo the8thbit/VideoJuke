@@ -4,7 +4,7 @@ import type { Logger } from '../../shared/types/logging';
 import type { IndexedVideo, PreprocessedVideo } from '../../shared/types/video';
 import { takeRandom } from '../../shared/util/arrays';
 import type { FileSystem } from '../infra/fileSystem';
-import type { Preprocessor } from './preprocessor';
+import type { PreprocessStage, Preprocessor } from './preprocessor';
 import type { VideoIndex } from './videoIndex';
 import type { VideoPathGuard } from './videoPaths';
 
@@ -14,10 +14,79 @@ export interface QueueStatsChange {
   readonly errors?: number;
 }
 
+/** One video being prepared right now. */
+export interface WorkingVideo {
+  readonly filename: string;
+  readonly label: string;
+  /** 0..1, or null when ffmpeg cannot tell yet. */
+  readonly progress: number | null;
+}
+
 export interface FillProgress {
   readonly current: number;
   readonly target: number;
+  /** What is being prepared at this moment, in the order it was started. */
+  readonly working: readonly WorkingVideo[];
 }
+
+/** Longest file name the progress line shows before shortening it. */
+const NAME_LIMIT = 48;
+
+const shortenName = (name: string): string => {
+  if (name.length <= NAME_LIMIT) return name;
+  // The middle goes: the start says what it is, the end its episode or extension.
+  const keep = NAME_LIMIT - 1;
+  const head = Math.ceil(keep * 0.6);
+  return `${name.slice(0, head)}…${name.slice(name.length - (keep - head))}`;
+};
+
+/**
+ * The status line under the queue's progress bar: how many are ready, then one
+ * line for each video being prepared, saying what is being done to it.
+ *
+ *     Preparing videos: 1 of 3 ready
+ *     Normalizing loudness and upmixing to 5.1 · beach day.mp4 · 45%
+ *     Copying · clip.mkv
+ */
+export const describeFill = (heading: string, progress: FillProgress): string => {
+  const lines = [`${heading}: ${progress.current} of ${progress.target} ready`];
+  for (const video of progress.working) {
+    const percent = video.progress === null ? '' : ` · ${Math.round(video.progress * 100)}%`;
+    lines.push(`${video.label} · ${shortenName(video.filename)}${percent}`);
+  }
+  return lines.join('\n');
+};
+
+interface WorkingEntry extends WorkingVideo {
+  readonly id: number;
+}
+
+/**
+ * Runs `each` over the items with up to `workers` of them in flight, stopping
+ * before the next one whenever `stop` says so.
+ */
+const runPool = async <T>(
+  items: readonly T[],
+  workers: number,
+  stop: () => boolean,
+  each: (item: T) => Promise<void>,
+): Promise<void> => {
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      if (stop()) return;
+      const item = items[next];
+      next += 1;
+      if (item === undefined) return;
+      await each(item);
+    }
+  };
+  const running: Promise<void>[] = [];
+  for (let count = 0; count < Math.min(Math.max(1, workers), items.length); count += 1) {
+    running.push(worker());
+  }
+  await Promise.all(running);
+};
 
 export interface PreprocessedQueueDeps {
   readonly fileSystem: FileSystem;
@@ -91,6 +160,14 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
   const replacing = createStore(false);
   /** The fill in flight, so a replacement can wait for its current transcode. */
   const activeFill = createStore<Promise<void> | null>(null);
+  /** The videos being prepared right now, for the progress line. */
+  const working = createStore<readonly WorkingEntry[]>([]);
+  let nextWorkingId = 0;
+
+  const workingNow = (): readonly WorkingVideo[] =>
+    working.get().map(({ filename, label, progress }) => ({ filename, label, progress }));
+
+  const parallelism = (): number => deps.config().performance.parallelTranscodes;
 
   /**
    * Chooses up to `count` sources to transcode. The ones picked earlier in this
@@ -133,7 +210,10 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
    * Transcodes one source, or answers null when it could not be, or when the
    * queue was cleared while it ran and the result belongs to nothing any more.
    */
-  const transcodeOne = async (source: IndexedVideo): Promise<PreprocessedVideo | null> => {
+  const transcodeOne = async (
+    source: IndexedVideo,
+    onChange: () => void = () => undefined,
+  ): Promise<PreprocessedVideo | null> => {
     // Indexes outlive the files they describe, so a source can disappear
     // between the scan and the transcode. That is not a preprocessing error.
     if (!(await deps.fileSystem.exists(source.originalPath))) {
@@ -141,8 +221,32 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
       return null;
     }
 
+    const id = nextWorkingId;
+    nextWorkingId += 1;
+    const onStage = (stage: PreprocessStage): void => {
+      // ffmpeg reports progress many times a second; whole percents are plenty.
+      const progress = stage.progress === null ? null : Math.floor(stage.progress * 100) / 100;
+      const entry = { id, filename: source.filename, label: stage.label, progress };
+      const current = working.get();
+      const existing = current.find((item) => item.id === id);
+      if (existing !== undefined && existing.label === entry.label && existing.progress === progress) {
+        return;
+      }
+      working.set(
+        existing === undefined
+          ? [...current, entry]
+          : current.map((item) => (item.id === id ? entry : item)),
+      );
+      onChange();
+    };
+
     const startedAt = generation.get();
-    const processed = await deps.preprocessor.preprocess(source);
+    let processed: Awaited<ReturnType<Preprocessor['preprocess']>>;
+    try {
+      processed = await deps.preprocessor.preprocess(source, onStage);
+    } finally {
+      working.update((current) => current.filter((item) => item.id !== id));
+    }
     if (!processed.ok) {
       deps.logger.warn(`failed to preprocess ${source.filename}: ${processed.error.message}`);
       deps.onStatsChange({ errors: 1 });
@@ -159,8 +263,8 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
     return processed.value;
   };
 
-  const preprocessOne = async (source: IndexedVideo): Promise<void> => {
-    const processed = await transcodeOne(source);
+  const preprocessOne = async (source: IndexedVideo, onChange: () => void): Promise<void> => {
+    const processed = await transcodeOne(source, onChange);
     if (processed !== null) videos.update((previous) => [...previous, processed]);
   };
 
@@ -188,8 +292,12 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
     const target = targetSize ?? deps.config().video.preprocessedQueueSize;
     const needed = target - videos.get().length;
 
+    const report = (): void => {
+      onProgress?.({ current: videos.get().length, target, working: workingNow() });
+    };
+
     if (needed <= 0) {
-      onProgress?.({ current: videos.get().length, target });
+      report();
       return;
     }
 
@@ -198,32 +306,39 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
     const sources = selectSources(needed);
     if (sources.length === 0) {
       deps.logger.info('no videos available to preprocess');
-      onProgress?.({ current: videos.get().length, target });
+      report();
       return;
     }
 
-    // One at a time: the transcodes are CPU-bound and the preprocessor already
-    // paces them with the configured processing delay.
+    // Several at once, up to `parallelTranscodes`; the preprocessor holds the
+    // same limit across every caller and paces each with the processing delay.
     const startedAt = generation.get();
-    for (const source of sources) {
-      // The whole list was chosen against the index as it stood when this fill
-      // began. A `clear` or a `restore` part-way through abandons that index, so
-      // everything still unstarted is abandoned with it: the per-transcode check
-      // in `preprocessOne` only ever caught the one already running, and the
-      // remaining sources each re-read the new generation and appended
-      // themselves to the bag that was just emptied to be rid of them.
-      if (generation.get() !== startedAt) {
-        deps.logger.info('abandoning the rest of this fill: the queue was cleared while it ran');
-        return;
-      }
-      // Everything this fill would add is about to be swapped out.
-      if (replacing.get()) {
-        deps.logger.info('abandoning the rest of this fill: a fresh batch is being built');
-        return;
-      }
-      await preprocessOne(source);
-      onProgress?.({ current: videos.get().length, target });
-    }
+    let abandoned = false;
+    await runPool(
+      sources,
+      parallelism(),
+      () => {
+        if (abandoned) return true;
+        // The whole list was chosen against the index as it stood when this fill
+        // began. A `clear` or a `restore` part-way through abandons that index,
+        // so everything still unstarted is abandoned with it: the per-transcode
+        // check in `transcodeOne` only ever caught the ones already running.
+        if (generation.get() !== startedAt) {
+          deps.logger.info('abandoning the rest of this fill: the queue was cleared while it ran');
+          abandoned = true;
+        } else if (replacing.get()) {
+          // Everything this fill would add is about to be swapped out.
+          deps.logger.info('abandoning the rest of this fill: a fresh batch is being built');
+          abandoned = true;
+        }
+        return abandoned;
+      },
+      async (source) => {
+        await preprocessOne(source, report);
+        report();
+      },
+    );
+    if (abandoned) return;
 
     deps.logger.info(`preprocessed queue filled: ${videos.get().length}/${target}`);
   };
@@ -266,14 +381,21 @@ export const createPreprocessedQueue = (deps: PreprocessedQueueDeps): Preprocess
         const sources = selectSources(count, false);
         const staged: PreprocessedVideo[] = [];
         deps.logger.info(`building a fresh batch of ${sources.length} videos`);
-        onProgress?.({ current: 0, target: sources.length });
+        const report = (): void => {
+          onProgress?.({ current: staged.length, target: sources.length, working: workingNow() });
+        };
+        report();
 
-        for (const source of sources) {
-          if (generation.get() !== startedAt) break;
-          const processed = await transcodeOne(source);
-          if (processed !== null) staged.push(processed);
-          onProgress?.({ current: staged.length, target: sources.length });
-        }
+        await runPool(
+          sources,
+          parallelism(),
+          () => generation.get() !== startedAt,
+          async (source) => {
+            const processed = await transcodeOne(source, report);
+            if (processed !== null) staged.push(processed);
+            report();
+          },
+        );
 
         // A clear or a restore while this ran abandoned the index it was built
         // against, exactly as it abandons an ordinary fill.

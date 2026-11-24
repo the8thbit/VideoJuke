@@ -82,6 +82,12 @@ export const MP4_OUTPUT_OPTIONS: readonly string[] = [
 ];
 
 export interface TranscodePlan {
+  /**
+   * True when the source's audio is already what the full chain would produce,
+   * so both streams are copied as they are. Nothing is decoded or encoded, which
+   * turns minutes of audio work into the time it takes to copy the file.
+   */
+  readonly copyAudio: boolean;
   readonly audioFilters: readonly string[];
   readonly audioEncoding: AudioEncoding;
   /** Null in compatibility mode, where the channel count is left to the encoder. */
@@ -97,6 +103,35 @@ const COMPATIBILITY_ENCODING: AudioEncoding = { codec: 'aac', bitrate: 256000 };
 const SILENT_SOURCE = { channels: 0, channelLayout: '', sampleRate: null } as const;
 
 /**
+ * Whether the audio can be copied untouched: no loudness normalization to
+ * apply, no channels to add or remove, and already AAC, which every client
+ * plays. A source with no audio at all qualifies too - the full chain adds
+ * none either.
+ */
+export const canCopyAudio = (audio: AudioStreamInfo | null, config: AppConfig): boolean => {
+  if (config.audio.normalization.enabled) return false;
+  if (audio === null) return true;
+  if (audio.codec === null || audio.codec.toLowerCase() !== 'aac') return false;
+  // With surround processing off, or upmixing refused for this source, the
+  // chain re-encodes without touching the channel count.
+  if (!config.audio.surroundProcessingEnabled) return true;
+  if (audio.channels > 0 && audio.channels < 6 && !config.audio.stereoUpmixing.enabled) return true;
+  return audio.channels === config.audio.outputChannels;
+};
+
+/** What a plan does to the audio, for the queue's progress line. */
+export const describeTranscodePlan = (plan: TranscodePlan): string => {
+  if (plan.copyAudio) return 'Copying';
+  const parts: string[] = [];
+  const filters = plan.audioFilters.join(',');
+  if (filters.indexOf('loudnorm') !== -1) parts.push('normalizing loudness');
+  if (filters.indexOf('pan=5.1') !== -1) parts.push('upmixing to 5.1');
+  if (parts.length === 0) parts.push('re-encoding audio');
+  const text = parts.join(' and ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
+
+/**
  * Everything ffmpeg needs to know about one transcode, decided up front.
  *
  * Compatibility mode is the retry path: the first attempt builds a full 5.1
@@ -106,13 +141,28 @@ const SILENT_SOURCE = { channels: 0, channelLayout: '', sampleRate: null } as co
 export const planTranscode = (
   audio: AudioStreamInfo | null,
   config: AppConfig,
-  options: { readonly compatibilityMode: boolean },
+  options: {
+    readonly compatibilityMode: boolean;
+    /** False forces the full chain, after a copy that ffmpeg refused. */
+    readonly allowCopy?: boolean;
+  },
 ): TranscodePlan => {
   const performance = resolvePerformanceSettings(config.performance);
   const outputOptions: readonly string[] = [
     ...buildPerformanceOutputOptions(performance),
     ...MP4_OUTPUT_OPTIONS,
   ];
+
+  if (options.allowCopy !== false && !options.compatibilityMode && canCopyAudio(audio, config)) {
+    return {
+      copyAudio: true,
+      audioFilters: [],
+      audioEncoding: COMPATIBILITY_ENCODING,
+      outputChannels: null,
+      outputOptions,
+      performance,
+    };
+  }
 
   /**
    * `audio.stereoUpmixing.enabled` was validated, documented and then never
@@ -128,6 +178,7 @@ export const planTranscode = (
 
   if (options.compatibilityMode || !config.audio.surroundProcessingEnabled || upmixRefused) {
     return {
+      copyAudio: false,
       audioFilters: buildStereoFilterChain(config.audio, audio?.sampleRate ?? null),
       audioEncoding: COMPATIBILITY_ENCODING,
       outputChannels: null,
@@ -154,6 +205,7 @@ export const planTranscode = (
    */
   if (config.audio.outputChannels <= 2) {
     return {
+      copyAudio: false,
       audioFilters: buildStereoFilterChain(config.audio, audio?.sampleRate ?? null),
       audioEncoding: selectAudioEncoding(config.audio.outputChannels, config.audio),
       outputChannels: config.audio.outputChannels,
@@ -163,6 +215,7 @@ export const planTranscode = (
   }
 
   return {
+    copyAudio: false,
     audioFilters: buildAudioFilterChain(audio ?? SILENT_SOURCE, config.audio),
     audioEncoding: selectAudioEncoding(config.audio.outputChannels, config.audio),
     outputChannels: config.audio.outputChannels,

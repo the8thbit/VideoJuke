@@ -35,10 +35,11 @@
   },
   "performance": {
     "mode": "balanced",
+    "parallelTranscodes": 2,
     "cpuLimiting": {
       "enabled": true,
       "maxThreads": 2,
-      "processingDelay": 1000,
+      "processingDelay": 0,
       "threadQueueSize": 512,
       "priority": "normal"
     },
@@ -51,7 +52,7 @@
       },
       "balanced": {
         "maxThreads": 2,
-        "processingDelay": 1000,
+        "processingDelay": 0,
         "threadQueueSize": 512,
         "priority": "normal"
       },

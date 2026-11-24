@@ -48,10 +48,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   performance: {
     mode: 'balanced',
+    parallelTranscodes: 2,
     cpuLimiting: {
       enabled: true,
       maxThreads: 2,
-      processingDelay: 1000,
+      processingDelay: 0,
       threadQueueSize: 512,
       priority: 'normal',
     },
@@ -64,7 +65,7 @@ export const DEFAULT_CONFIG: AppConfig = {
       },
       balanced: {
         maxThreads: 2,
-        processingDelay: 1000,
+        processingDelay: 0,
         threadQueueSize: 512,
         priority: 'normal',
       },

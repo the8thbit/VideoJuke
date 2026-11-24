@@ -119,6 +119,12 @@ export interface PerformancePreset {
 
 export interface PerformanceConfig {
   readonly mode: PerformanceMode;
+  /**
+   * How many videos are prepared at once. The audio filters mostly keep one
+   * core busy each, so two files side by side finish far sooner than one
+   * file given twice the threads.
+   */
+  readonly parallelTranscodes: number;
   readonly cpuLimiting: CpuLimitingConfig;
   readonly presets: Readonly<Record<PerformanceMode, PerformancePreset>>;
 }

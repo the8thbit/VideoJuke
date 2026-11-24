@@ -469,6 +469,8 @@ body {
   color: var(--vj-muted);
   min-height: 34px;
   overflow-wrap: anywhere;
+  /* The queue's status lists each video being prepared on a line of its own. */
+  white-space: pre-line;
 }
 
 .options-step-status.error,

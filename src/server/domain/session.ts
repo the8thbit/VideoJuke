@@ -17,7 +17,7 @@ import { createArchiveFlagsStore, createFavoritesStore } from './archiveFlags';
 import type { ConfigService } from './configService';
 import { createHistoryStore } from './historyStore';
 import { createPipelineTracker, scaleProgress } from './pipeline';
-import { createPreprocessedQueue } from './preprocessedQueue';
+import { createPreprocessedQueue, describeFill, type FillProgress } from './preprocessedQueue';
 import { createPreprocessor } from './preprocessor';
 import { createQueuePersistence } from './queuePersistence';
 import { createSessionStatsStore } from './sessionStats';
@@ -442,10 +442,33 @@ export const createSession = (deps: SessionDeps): Session => {
       await history.save();
     });
 
+  /** What the queue step says once it is done, between background fills. */
+  const readyMessage = (): string => `Ready with ${queue.size()} videos prepared`;
+
+  /**
+   * Once the step is done the rest of the queue is still built behind the
+   * first videos, by this and by the top-up timer; saying so beats a status
+   * that sits still. A step that is not done has its own message to show.
+   */
+  const showWhileDone = (message: string): void => {
+    if (pipeline.get().queue.status === 'done') pipeline.done('queue', message);
+  };
+
+  const reportBackgroundFill = (progress: FillProgress): void => {
+    showWhileDone(
+      progress.working.length === 0
+        ? readyMessage()
+        : describeFill('Ready; preparing more in the background', progress),
+    );
+  };
+
   const fillInBackground = (): void => {
-    void queue.fill().catch((thrown: unknown) => {
-      logger.error('background queue fill failed', thrown);
-    });
+    void queue
+      .fill(undefined, reportBackgroundFill)
+      .then(() => showWhileDone(readyMessage()))
+      .catch((thrown: unknown) => {
+        logger.error('background queue fill failed', thrown);
+      });
   };
 
   /**
@@ -651,7 +674,7 @@ export const createSession = (deps: SessionDeps): Session => {
 
     const target = Math.min(STARTUP_READY_VIDEOS, config().video.preprocessedQueueSize);
     if (queue.size() < target) {
-      pipeline.running('queue', QUEUE_PREPROCESS_BASE, 'Preprocessing videos');
+      pipeline.running('queue', QUEUE_PREPROCESS_BASE, 'Choosing videos to prepare');
       await queue.fill(target, (progress) => {
         pipeline.running(
           'queue',
@@ -660,7 +683,7 @@ export const createSession = (deps: SessionDeps): Session => {
             QUEUE_PREPROCESS_SPAN,
             ratio(progress.current, progress.target),
           ),
-          `Preprocessing videos: ${progress.current}/${progress.target}`,
+          describeFill('Preparing videos to start with', progress),
         );
       });
       // `fill` is exclusive, so the call above adds nothing when the top-up
@@ -684,7 +707,7 @@ export const createSession = (deps: SessionDeps): Session => {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const outcome = await guarded(attemptQueue, 'Preparing the queue');
       if (outcome.ok) {
-        pipeline.done('queue', `Ready with ${queue.size()} videos prepared`);
+        pipeline.done('queue', readyMessage());
         // The step only waited for enough to start on; the rest of the target
         // is filled now rather than on the monitor's next tick.
         fillInBackground();
@@ -888,7 +911,8 @@ export const createSession = (deps: SessionDeps): Session => {
     if (pipeline.get().queue.status === 'idle') return;
     // Nothing to draw from, and `fill` would only log that on every tick.
     if (videoIndex.count() === 0) return;
-    await queue.fill();
+    await queue.fill(undefined, reportBackgroundFill);
+    showWhileDone(readyMessage());
     // A queue step that gave up has nothing else retrying it; if the monitor
     // has since got something through, the queue is ready after all.
     if (pipeline.get().queue.status === 'error' && queue.size() >= MINIMUM_STARTUP_VIDEOS) {
