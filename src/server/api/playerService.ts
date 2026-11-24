@@ -53,6 +53,15 @@ export const createPlayerService = (
     startQueue: async () => {
       session.startQueue();
     },
+    clearIndex: async () => {
+      session.clearIndex();
+    },
+    clearQueue: async () => {
+      session.clearQueue();
+    },
+    requeue: async () => {
+      session.requeue();
+    },
     setAutoQueue: async (enabled) => {
       session.setAutoQueue(enabled);
     },

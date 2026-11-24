@@ -54,6 +54,9 @@ const videojuke: PlayerApi = {
 
   startIndex: () => invoke<void>(IPC_CHANNELS.startIndex),
   startQueue: () => invoke<void>(IPC_CHANNELS.startQueue),
+  clearIndex: () => invoke<void>(IPC_CHANNELS.clearIndex),
+  clearQueue: () => invoke<void>(IPC_CHANNELS.clearQueue),
+  requeue: () => invoke<void>(IPC_CHANNELS.requeue),
   setAutoQueue: (enabled) => invoke<void>(IPC_CHANNELS.setAutoQueue, enabled),
   setAutoPlay: (enabled) => invoke<void>(IPC_CHANNELS.setAutoPlay, enabled),
   getEditableConfig: () => invoke<EditableConfig>(IPC_CHANNELS.getEditableConfig),

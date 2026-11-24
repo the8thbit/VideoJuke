@@ -325,6 +325,13 @@ export interface StartupConfig {
   readonly autoQueueAfterIndex: boolean;
   /** Start playing as soon as the queue is ready. */
   readonly autoPlayAfterQueue: boolean;
+  /**
+   * Load the saved index and queue as soon as the app starts, so a restart
+   * carries on where it left off without pressing Index and Queue again. Only
+   * an index that still matches the settings is loaded; one that does not
+   * waits to be re-indexed as before.
+   */
+  readonly restoreOnLaunch: boolean;
 }
 
 /**

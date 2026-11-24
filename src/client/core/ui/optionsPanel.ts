@@ -56,6 +56,9 @@ export interface OptionsPanelDeps {
     PlayerApi,
     | 'startIndex'
     | 'startQueue'
+    | 'clearIndex'
+    | 'clearQueue'
+    | 'requeue'
     | 'setAutoQueue'
     | 'setAutoPlay'
     | 'getEditableConfig'
@@ -100,6 +103,10 @@ export interface OptionsPanel {
 }
 
 const HIDDEN_CLASS = 'hidden';
+/** Where this screen remembers whether the steps clear or redo once done. */
+const REDO_PREFERENCE_KEY = 'videojuke.stepButtonsRedo';
+/** How long a Clear button waits for the second press that confirms it. */
+const CONFIRM_WINDOW_MS = 4000;
 /** How often the log is re-read while the panel is open. */
 const LOG_POLL_INTERVAL_MS = 2000;
 /** Rows kept in the log; the server keeps the same number. */
@@ -182,6 +189,9 @@ const HINTS: Readonly<Record<string, string>> = {
     'The default for each new session. The toggle on the Queue button changes only this one.',
   'startup.autoPlayAfterQueue':
     'The default for each new session. The toggle on the Play button changes only this one.',
+  'startup.restoreOnLaunch':
+    'Load the saved index and queue when VideoJuke starts, so it carries on where it left ' +
+    'off. An index that no longer matches the settings still waits for Index.',
   'video.preprocessedQueueSize': 'Transcoded videos the server keeps ready.',
   'video.playbackQueueSize': 'Videos each screen keeps queued ahead of the one playing.',
   'controls.keyboard':
@@ -249,6 +259,8 @@ interface StepAction {
   readonly enabled: boolean;
   /** True when the button is standing in as an auto toggle. */
   readonly toggle: boolean;
+  /** True when pressing it throws work away, so it is drawn as a warning. */
+  readonly destructive?: boolean;
   readonly pressed: boolean;
   readonly run: (() => void) | null;
 }
@@ -344,6 +356,53 @@ export const createOptionsPanel = (deps: OptionsPanelDeps): OptionsPanel => {
     extraActions.appendChild(changeServer);
   }
 
+  /**
+   * Whether a finished step offers to do itself again rather than to clear.
+   * Per screen, like the auto toggles, so it lives in this browser's storage
+   * rather than in config.json.
+   */
+  const storage = ((): Storage | null => {
+    try {
+      return root.defaultView === null ? null : root.defaultView.localStorage;
+    } catch {
+      return null;
+    }
+  })();
+  let redoMode = storage !== null && storage.getItem(REDO_PREFERENCE_KEY) === 'true';
+  /** The step whose Clear was pressed once and awaits the confirming press. */
+  let armed: 'index' | 'queue' | null = null;
+  let armedTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const disarm = (): void => {
+    armed = null;
+    if (armedTimer !== null) {
+      clearTimeout(armedTimer);
+      armedTimer = null;
+    }
+  };
+
+  const redoLabel = create('label', 'options-redo');
+  const redoToggle = create('input', 'options-checkbox');
+  redoToggle.type = 'checkbox';
+  redoToggle.checked = redoMode;
+  redoLabel.appendChild(redoToggle);
+  redoLabel.appendChild(
+    root.createTextNode(' Finished steps re-index and requeue instead of clearing'),
+  );
+  redoToggle.addEventListener('change', () => {
+    redoMode = redoToggle.checked;
+    if (storage !== null) {
+      try {
+        storage.setItem(REDO_PREFERENCE_KEY, String(redoMode));
+      } catch {
+        // A full or forbidden store only costs remembering the choice.
+      }
+    }
+    disarm();
+    renderSteps();
+  });
+  extraActions.appendChild(redoLabel);
+
   const settingsHeading = create('h3', 'options-heading', 'Settings');
   content.appendChild(settingsHeading);
   const settingsNote = create('div', 'options-note');
@@ -392,10 +451,53 @@ export const createOptionsPanel = (deps: OptionsPanelDeps): OptionsPanel => {
     );
   };
 
+  /**
+   * A Clear button: the first press arms it and asks for a second, which is
+   * what a controller or a remote can give where a confirmation dialog would
+   * be awkward. Left alone it quietly goes back to Clear.
+   */
+  const clearAction = (step: 'index' | 'queue', label: string, run: () => void): StepAction => {
+    if (armed === step) {
+      return {
+        label: 'Press again to clear',
+        enabled: true,
+        toggle: false,
+        pressed: false,
+        destructive: true,
+        run: () => {
+          disarm();
+          run();
+        },
+      };
+    }
+    return {
+      label,
+      enabled: true,
+      toggle: false,
+      pressed: false,
+      destructive: true,
+      run: () => {
+        disarm();
+        armed = step;
+        armedTimer = setTimeout(() => {
+          armedTimer = null;
+          armed = null;
+          renderSteps();
+        }, CONFIRM_WINDOW_MS);
+        renderSteps();
+      },
+    };
+  };
+
   const indexAction = (): StepAction => {
     const phase = pipeline.index;
     if (phase.status === 'running') {
       return { label: 'Indexing...', enabled: false, toggle: false, pressed: false, run: null };
+    }
+    if (phase.status === 'done' && !redoMode) {
+      return clearAction('index', 'Clear index', () => {
+        runAction(() => api.clearIndex(), 'clear the index');
+      });
     }
     const label = phase.status === 'done' ? 'Re-index' : 'Index';
     return {
@@ -425,8 +527,23 @@ export const createOptionsPanel = (deps: OptionsPanelDeps): OptionsPanel => {
     if (phase.status === 'running') {
       return { label: 'Preparing...', enabled: false, toggle: false, pressed: false, run: null };
     }
+    if (phase.status === 'done' && redoMode) {
+      return {
+        label: 'Requeue',
+        enabled: true,
+        toggle: false,
+        pressed: false,
+        run: () => {
+          pipeline = { ...pipeline, queue: { ...pipeline.queue, status: 'running', progress: 0 } };
+          renderSteps();
+          runAction(() => api.requeue(), 'requeue');
+        },
+      };
+    }
     if (phase.status === 'done') {
-      return { label: 'Queue ready', enabled: false, toggle: false, pressed: false, run: null };
+      return clearAction('queue', 'Clear queue', () => {
+        runAction(() => api.clearQueue(), 'clear the queue');
+      });
     }
     return {
       label: 'Queue',
@@ -481,6 +598,7 @@ export const createOptionsPanel = (deps: OptionsPanelDeps): OptionsPanel => {
     view.button.textContent = action.label;
     view.button.disabled = !action.enabled;
     setClass(view.button, 'toggle', action.toggle);
+    setClass(view.button, 'destructive', action.destructive === true);
     setClass(view.button, 'pressed', action.pressed);
     view.button.setAttribute('aria-pressed', action.toggle ? String(action.pressed) : 'false');
     view.status.textContent = text;
@@ -1315,6 +1433,7 @@ export const createOptionsPanel = (deps: OptionsPanelDeps): OptionsPanel => {
     cleanup: () => {
       if (disposed) return;
       disposed = true;
+      disarm();
       stopLogPolling();
       root.removeEventListener('keydown', onKeyDown, true);
       container.innerHTML = '';

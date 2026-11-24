@@ -56,6 +56,12 @@ export interface Session {
   readonly startIndex: () => void;
   /** Starts preparing the queue; refused until the index is done. Returns at once. */
   readonly startQueue: () => void;
+  /** Forgets the index and the queue built from it, on disk too. Returns at once. */
+  readonly clearIndex: () => void;
+  /** Forgets the queue and deletes its transcodes. Returns at once. */
+  readonly clearQueue: () => void;
+  /** Clears the queue and prepares a fresh one. Returns at once. */
+  readonly requeue: () => void;
   /** This session's choice only; `startup.autoQueueAfterIndex` is the default. */
   readonly setAutoQueue: (enabled: boolean) => void;
   /** This session's choice only; `startup.autoPlayAfterQueue` is the default. */
@@ -567,6 +573,23 @@ export const createSession = (deps: SessionDeps): Session => {
     return false;
   };
 
+  /** Brings the saved queue and history back, once per process. */
+  const restoreSavedQueue = async (): Promise<void> => {
+    if (queueRestored.get()) return;
+    await history.load();
+    await archiveFlags.load();
+    const saved = await persistence.load();
+    if (saved !== null) {
+      queue.restore(saved.queued);
+      history.restoreRecent(saved.recentHistory);
+    }
+    queueRestored.set(true);
+    // After the restore, not before it: the protected set is only meaningful
+    // once the queue that references those temp files is back.
+    await cleanupTempDirectory();
+    startQueueTimers();
+  };
+
   /**
    * One run of the queue step: bring the saved state back once, then transcode
    * until there is enough to start on. Everything past that is filled in the
@@ -587,18 +610,7 @@ export const createSession = (deps: SessionDeps): Session => {
 
     if (!queueRestored.get()) {
       pipeline.running('queue', QUEUE_RESTORE_PROGRESS, 'Restoring the saved queue');
-      await history.load();
-      await archiveFlags.load();
-      const saved = await persistence.load();
-      if (saved !== null) {
-        queue.restore(saved.queued);
-        history.restoreRecent(saved.recentHistory);
-      }
-      queueRestored.set(true);
-      // After the restore, not before it: the protected set is only meaningful
-      // once the queue that references those temp files is back.
-      await cleanupTempDirectory();
-      startQueueTimers();
+      await restoreSavedQueue();
     }
 
     const target = Math.min(STARTUP_READY_VIDEOS, config().video.preprocessedQueueSize);
@@ -706,11 +718,84 @@ export const createSession = (deps: SessionDeps): Session => {
       });
   };
 
+  /** Empties the queue in memory and on disk; the transcodes go with it. */
+  const forgetQueue = async (): Promise<void> => {
+    await queue.clear();
+    await persistence.clear();
+    pipeline.reset('queue');
+  };
+
+  const runClearIndex = async (): Promise<void> => {
+    await forgetQueue();
+    await videoIndex.clear();
+    indexed.set(false);
+    lastCompleteIndexCount.set(null);
+    stats.setIndexed(0, clock.nowIso());
+    pipeline.reset('index');
+    logger.info('index and queue cleared');
+  };
+
+  const runClearQueue = async (): Promise<void> => {
+    await forgetQueue();
+    logger.info('queue cleared');
+  };
+
+  const runRequeue = async (): Promise<void> => {
+    await forgetQueue();
+    logger.info('queue cleared; preparing a fresh one');
+    await runQueueStep();
+  };
+
+  const exclusively = (what: string, step: () => Promise<void>): void => {
+    void busy
+      .runExclusive(step)
+      .then((outcome) => {
+        if (outcome === null) logger.info(`${what} skipped: another step is running`);
+      })
+      .catch((thrown: unknown) => {
+        logger.error(`${what} failed`, thrown);
+      });
+  };
+
+  /**
+   * Picks up where the last run left off: the saved index, if it still matches
+   * the settings, and then the saved queue. Nothing is scanned or transcoded
+   * here; an index that no longer matches waits for Index as it always has.
+   * Returns whether the index was loaded.
+   */
+  const restoreOnLaunch = async (): Promise<boolean> => {
+    pipeline.running('index', 0, 'Loading the saved index');
+    const loaded = await videoIndex.load();
+    if (!loaded || videoIndex.needsRebuild() || videoIndex.count() === 0) {
+      logger.info('no saved index matches the settings; waiting for Index');
+      pipeline.reset('index');
+      return false;
+    }
+    stats.setIndexed(videoIndex.count(), videoIndex.snapshot().builtAt);
+    lastCompleteIndexCount.set(videoIndex.count());
+    if (videoIndex.needsMeasurement()) await videoIndex.measure(reportIndexProgress);
+    finishIndex(true);
+    startIndexTimer();
+
+    pipeline.running('queue', QUEUE_RESTORE_PROGRESS, 'Restoring the saved queue');
+    const temp = await fileSystem.ensureDirectory(paths.tempDirectory);
+    if (temp.ok) await restoreSavedQueue();
+    if (queue.size() >= MINIMUM_STARTUP_VIDEOS) {
+      pipeline.done('queue', `Restored ${queue.size()} prepared videos`);
+      fillInBackground();
+    } else {
+      pipeline.reset('queue');
+    }
+    return true;
+  };
+
   /**
    * The periodic re-scan. It also notices a share that has finally mounted:
    * a first index that failed for want of videos is retried by nothing else.
    */
   const refreshIndex = async (): Promise<void> => {
+    // Cleared on purpose: the timer must not quietly build it again.
+    if (pipeline.get().index.status === 'idle') return;
     const outcome = await busy.runExclusive(runIndexStep);
     if (outcome === null) {
       logger.debug('periodic re-index skipped: another step is running');
@@ -721,6 +806,8 @@ export const createSession = (deps: SessionDeps): Session => {
 
   const topUpQueue = async (): Promise<void> => {
     await queue.removeMissingFiles();
+    // Cleared on purpose, or never asked for: nothing to top up.
+    if (pipeline.get().queue.status === 'idle') return;
     // Nothing to draw from, and `fill` would only log that on every tick.
     if (videoIndex.count() === 0) return;
     await queue.fill();
@@ -914,10 +1001,24 @@ export const createSession = (deps: SessionDeps): Session => {
       }),
     );
 
-    // Deliberately nothing else. Indexing a large library and transcoding the
-    // first videos takes minutes and a lot of CPU, and it now waits to be asked
-    // for: from the start screen, or by the auto settings once it has been.
-    logger.info('session started; waiting for the index to be requested');
+    // Nothing is scanned or transcoded here. Indexing a large library and
+    // transcoding the first videos takes minutes and a lot of CPU, so it waits
+    // to be asked for; what the last run already did is only loaded back.
+    if (!current.startup.restoreOnLaunch) {
+      logger.info('session started; waiting for the index to be requested');
+      return;
+    }
+    void busy
+      .runExclusive(restoreOnLaunch)
+      .then((restored) => {
+        // After the lock is released, or the queue step would find it held.
+        if (restored === true) continueAfterIndex();
+      })
+      .catch((thrown: unknown) => {
+        logger.error('restoring the saved index and queue failed', thrown);
+        pipeline.reset('index');
+        pipeline.reset('queue');
+      });
   };
 
   const shutdown = async (): Promise<void> => {
@@ -962,7 +1063,10 @@ export const createSession = (deps: SessionDeps): Session => {
 
     rememberHandedOut(video);
     stats.increment('videosPlayed');
-    if (queue.size() < config().video.preprocessedQueueSize) {
+    if (
+      queue.size() < config().video.preprocessedQueueSize &&
+      pipeline.get().queue.status !== 'idle'
+    ) {
       fillInBackground();
     }
     return video;
@@ -1013,6 +1117,9 @@ export const createSession = (deps: SessionDeps): Session => {
 
     startIndex,
     startQueue,
+    clearIndex: () => exclusively('clearing the index', runClearIndex),
+    clearQueue: () => exclusively('clearing the queue', runClearQueue),
+    requeue: () => exclusively('requeueing', runRequeue),
     setAutoQueue: (enabled) => {
       pipeline.setAutoQueue(enabled);
       // Switched on after the index had already finished: there is nothing

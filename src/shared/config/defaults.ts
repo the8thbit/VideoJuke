@@ -25,6 +25,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   startup: {
     autoQueueAfterIndex: false,
     autoPlayAfterQueue: false,
+    restoreOnLaunch: true,
   },
   network: {
     server: {

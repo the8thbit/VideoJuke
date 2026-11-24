@@ -384,6 +384,22 @@ body {
   color: #fff;
 }
 
+/* Clear throws work away, so it does not look like the other steps. */
+.options-step-button.destructive {
+  background: #b45309;
+}
+
+.options-step-button.destructive:hover:not(:disabled) {
+  background: #92400e;
+}
+
+.options-redo {
+  display: block;
+  margin: 8px 0;
+  color: var(--vj-label);
+  cursor: pointer;
+}
+
 .options-step-bar {
   height: 6px;
   margin: 12px 0 8px;

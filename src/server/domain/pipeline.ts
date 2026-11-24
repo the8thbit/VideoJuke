@@ -1,5 +1,6 @@
 import { createStore } from '../../shared/state/store';
 import {
+  IDLE_PHASE,
   INITIAL_PIPELINE_STATE,
   type PhaseState,
   type PipelineState,
@@ -15,6 +16,8 @@ export interface PipelineTracker {
   readonly running: (phase: PipelinePhase, progress: number, message: string) => void;
   readonly done: (phase: PipelinePhase, message: string) => void;
   readonly fail: (phase: PipelinePhase, message: string, error?: unknown) => void;
+  /** Back to "not started", as after a clear. */
+  readonly reset: (phase: PipelinePhase) => void;
   readonly setAutoQueue: (enabled: boolean) => void;
   readonly setAutoPlay: (enabled: boolean) => void;
   readonly setUpdate: (update: SettingsUpdateState | null) => void;
@@ -76,6 +79,10 @@ export const createPipelineTracker = (): PipelineTracker => {
         message,
         error: error === undefined ? null : describeError(error),
       });
+    },
+
+    reset: (phase) => {
+      setPhase(phase, IDLE_PHASE);
     },
 
     setAutoQueue: (enabled) => {

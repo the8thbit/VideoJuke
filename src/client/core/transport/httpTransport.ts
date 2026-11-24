@@ -439,6 +439,9 @@ export const createHttpTransport = (options: HttpTransportOptions): HttpTranspor
 
     startIndex: () => command(HTTP_ROUTES.startIndex, {}),
     startQueue: () => command(HTTP_ROUTES.startQueue, {}),
+    clearIndex: () => command(HTTP_ROUTES.clearIndex, {}),
+    clearQueue: () => command(HTTP_ROUTES.clearQueue, {}),
+    requeue: () => command(HTTP_ROUTES.requeue, {}),
     setAutoQueue: (enabled) => command(HTTP_ROUTES.autoQueue, { enabled }),
     setAutoPlay: (enabled) => command(HTTP_ROUTES.autoPlay, { enabled }),
     getEditableConfig: async () =>

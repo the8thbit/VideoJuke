@@ -81,6 +81,12 @@ export interface PlayerApi {
    */
   readonly startIndex: () => Promise<void>;
   readonly startQueue: () => Promise<void>;
+  /** Forgets the index and the queue built from it, on disk as well. */
+  readonly clearIndex: () => Promise<void>;
+  /** Forgets the prepared queue and deletes its transcodes. */
+  readonly clearQueue: () => Promise<void>;
+  /** Clears the queue and prepares a fresh one straight away. */
+  readonly requeue: () => Promise<void>;
   /**
    * This session's auto-queue and auto-play. The `startup` settings are only
    * where each new session starts from, so changing these leaves them alone.
@@ -142,6 +148,9 @@ export const IPC_CHANNELS = {
   getDetailedStats: 'player:get-detailed-stats',
   startIndex: 'player:start-index',
   startQueue: 'player:start-queue',
+  clearIndex: 'player:clear-index',
+  clearQueue: 'player:clear-queue',
+  requeue: 'player:requeue',
   setAutoQueue: 'player:set-auto-queue',
   setAutoPlay: 'player:set-auto-play',
   getEditableConfig: 'player:get-editable-config',
@@ -172,6 +181,9 @@ export const HTTP_ROUTES = {
   detailedStats: '/api/detailed-stats',
   startIndex: '/api/pipeline/index',
   startQueue: '/api/pipeline/queue',
+  clearIndex: '/api/pipeline/index/clear',
+  clearQueue: '/api/pipeline/queue/clear',
+  requeue: '/api/pipeline/requeue',
   autoQueue: '/api/pipeline/auto-queue',
   autoPlay: '/api/pipeline/auto-play',
   /** GET reads the editable settings, POST saves a patch. */

@@ -557,6 +557,7 @@ const readStartup = (source: RawField, base: StartupConfig): StartupConfig => {
   return {
     autoQueueAfterIndex: bool(pick('autoQueueAfterIndex'), base.autoQueueAfterIndex),
     autoPlayAfterQueue: bool(pick('autoPlayAfterQueue'), base.autoPlayAfterQueue),
+    restoreOnLaunch: bool(pick('restoreOnLaunch'), base.restoreOnLaunch),
   };
 };
 

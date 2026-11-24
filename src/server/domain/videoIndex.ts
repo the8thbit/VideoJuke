@@ -100,6 +100,8 @@ export interface VideoIndex {
   readonly snapshot: () => VideoIndexSnapshot;
   readonly count: () => number;
   readonly selectVideo: (excludedPaths: ReadonlySet<string>) => IndexedVideo | null;
+  /** Empties the index and deletes its cache file. */
+  readonly clear: () => Promise<void>;
 }
 
 /**
@@ -727,5 +729,12 @@ export const createVideoIndex = (deps: VideoIndexDeps): VideoIndex => {
     snapshot: state.get,
     count: () => countVideos(state.get()),
     selectVideo: pickVideo,
+    clear: async () => {
+      state.set(emptySnapshot(clock.nowIso()));
+      persistable.set(false);
+      const removed = await fileSystem.remove(paths.videoIndexFile);
+      if (!removed.ok) logger.warn(`could not delete ${paths.videoIndexFile}: ${removed.error.message}`);
+      logger.info('cleared the video index');
+    },
   };
 };

@@ -11,7 +11,8 @@
   },
   "startup": {
     "autoQueueAfterIndex": false,
-    "autoPlayAfterQueue": false
+    "autoPlayAfterQueue": false,
+    "restoreOnLaunch": true
   },
   "network": {
     "server": {

@@ -146,6 +146,22 @@ export const createPlayerRouter = ({
     }),
   );
 
+  // Same shape as the two above: each answers at once and runs in the background.
+  const pipelineCommands: readonly (readonly [string, () => Promise<void>])[] = [
+    [HTTP_ROUTES.clearIndex, () => service.clearIndex()],
+    [HTTP_ROUTES.clearQueue, () => service.clearQueue()],
+    [HTTP_ROUTES.requeue, () => service.requeue()],
+  ];
+  for (const [route, run] of pipelineCommands) {
+    router.post(
+      route,
+      asyncHandler(async (_request, response) => {
+        await run();
+        response.json(ACKNOWLEDGED);
+      }),
+    );
+  }
+
   router.post(
     HTTP_ROUTES.autoQueue,
     asyncHandler(async (request, response) => {

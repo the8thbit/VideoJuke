@@ -387,9 +387,13 @@ describe('selection settings', () => {
     assert.deepEqual(config.selection.lengthBias, { enabled: false, favor: 'shorter', maxRatio: 10 });
   });
 
-  it('ships both startup chains off', () => {
+  it('ships both startup chains off, and restoring the last session on', () => {
     const { config } = normalizeConfig({ directories: ['/videos'] });
-    assert.deepEqual(config.startup, { autoQueueAfterIndex: false, autoPlayAfterQueue: false });
+    assert.deepEqual(config.startup, {
+      autoQueueAfterIndex: false,
+      autoPlayAfterQueue: false,
+      restoreOnLaunch: true,
+    });
   });
 
   it('rejects a direction it does not know', () => {

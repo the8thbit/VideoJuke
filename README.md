@@ -91,8 +91,8 @@ npm install
 npm run package:electron
 ```
 
-That writes `release/VideoJuke Setup 1.0.0.exe` (about 120 MB, ffmpeg
-included). Copy it to the other machine and run it. It installs for the current
+That writes `release/VideoJuke Setup <version>.exe` (about 120 MB, ffmpeg
+included), where the version is the one in package.json. Copy it to the other machine and run it. It installs for the current
 user only, so it needs no administrator rights, and it lets you pick the
 folder. The installer is not code-signed, so Windows SmartScreen will warn
 about it the first time: choose **More info**, then **Run anyway**.
@@ -181,13 +181,27 @@ Every client opens on the same screen: three steps across the top, every
 setting below them, and the server's recent warnings and errors at the bottom.
 
 - **Index** scans the configured directories. Once it has run it becomes
-  **Re-index**.
+  **Clear index**, which forgets the index and the queue built from it.
 - **Queue** transcodes the first few videos. Until the index is done, the button
   is an **Auto queue** toggle instead: switch it on and the queue starts by
   itself as soon as indexing finishes.
+- Once the queue is ready, its button becomes **Clear queue**, which deletes
+  the prepared transcodes.
 - **Play** builds this screen's playback queue and starts watching. Until the
   queue is ready it is an **Auto play** toggle, which starts playback as soon as
   the queue is.
+
+Both Clear buttons ask for a second press within four seconds, so neither can
+be set off by accident. Tick **Finished steps re-index and requeue instead of
+clearing**, under the steps, and the two buttons become **Re-index** (scan the
+directories again) and **Requeue** (throw the queue away and prepare a fresh
+one) instead. That choice is remembered by each screen.
+
+The index and the queue are saved, and by default they are loaded again when
+VideoJuke starts, so a restart carries on where it left off: both steps show as
+done and Play is ready straight away. Turn off `startup.restoreOnLaunch` to
+start from the Index button every time instead. An index made under settings
+that have changed since is not loaded; it waits for Index.
 
 The two toggles belong to the current server session only. The settings
 `startup.autoQueueAfterIndex` and `startup.autoPlayAfterQueue` (both off by
